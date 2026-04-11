@@ -1,4 +1,1 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
-echo "ForgeAI scaffold ready."
+uvicorn app.main:app --reload
