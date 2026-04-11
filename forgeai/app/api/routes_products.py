@@ -1,8 +1,18 @@
-from fastapi import APIRouter
-from app.core.orchestrator import run_pipeline
+from uuid import UUID
 
-router = APIRouter()
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
 
-@router.post("/run")
-def run():
-    return run_pipeline()
+from app.core.orchestrator import _to_response
+from app.db.models import Product
+from app.dependencies import get_db
+
+router = APIRouter(tags=["products"])
+
+
+@router.get("/{product_id}")
+def get_product_route(product_id: UUID, db: Session = Depends(get_db)) -> dict:
+    product = db.get(Product, product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    return _to_response(product).model_dump()
