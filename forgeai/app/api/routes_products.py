@@ -1,8 +1,9 @@
 from fastapi import APIRouter
-from app.core.orchestrator import run_pipeline
 
-router = APIRouter()
+router = APIRouter(tags=["products"])
 
-@router.post("/run")
-def run():
-    return run_pipeline()
+
+@router.get("/")
+def list_products() -> dict:
+    # Placeholder until DB integration.
+    return {"items": []}
