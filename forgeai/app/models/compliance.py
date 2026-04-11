@@ -1,3 +1,5 @@
+"""Structured compliance response models used across API and orchestration."""
+
 from pydantic import BaseModel, Field
 
 

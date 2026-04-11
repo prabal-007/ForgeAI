@@ -18,6 +18,7 @@ ForgeAI is an AI-powered publishing engine for generating **original, legally sa
 
 Only valid forward transitions are allowed via `approve_stage`.
 Canonical stage order is fixed in code and DB models to prevent drift across merges.
+Conflict-resolution note: stage constants and schema helpers are shared to reduce merge breakage.
 
 ## API
 

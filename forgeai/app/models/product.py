@@ -32,6 +32,10 @@ PIPELINE_STAGE_ORDER = (
 )
 
 
+def is_valid_stage(stage: str) -> bool:
+    return stage in PIPELINE_STAGE_ORDER
+
+
 class ProductCreateRequest(BaseModel):
     brief: str = Field(..., min_length=10)
 

@@ -113,6 +113,14 @@ def _classify_guardrail_issue(issue: str) -> dict:
     return {"type": issue_type, "reason": issue}
 
 
+
+
+def _result(issues: list[dict]) -> dict:
+    decision = "fail" if issues else "pass"
+    risk = "high" if issues else "low"
+    return {"risk": risk, "issues": issues, "decision": decision}
+
+
 def compliance_agent(payload: dict) -> dict:
     brand_payload = payload.get("brand", {}) if isinstance(payload, dict) else {}
     design_payload = payload.get("design", {}) if isinstance(payload, dict) else {}
@@ -147,10 +155,4 @@ def compliance_agent(payload: dict) -> dict:
             if isinstance(item, dict) and {"type", "reason"}.issubset(item):
                 issues.append({"type": item["type"], "reason": item["reason"]})
 
-    decision = "fail" if issues else "pass"
-    risk = "high" if issues else "low"
-    return {
-        "risk": risk,
-        "issues": issues,
-        "decision": decision,
-    }
+    return _result(issues)

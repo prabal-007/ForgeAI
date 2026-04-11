@@ -37,6 +37,10 @@ PIPELINE_STAGE_ORDER = (
 )
 
 
+def is_valid_stage(stage: str) -> bool:
+    return stage in PIPELINE_STAGE_ORDER
+
+
 class Product(Base):
     __tablename__ = "products"
 
