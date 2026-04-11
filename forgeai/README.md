@@ -71,6 +71,23 @@ Content stage stores structured interiors at `product.data["content"]` with this
 }
 ```
 
+
+## Compliance Output
+
+Compliance returns structured section-specific issues:
+
+```json
+{
+  "risk": "",
+  "issues": [
+    {"type": "brand", "reason": ""},
+    {"type": "design", "reason": ""},
+    {"type": "content", "reason": ""}
+  ],
+  "decision": ""
+}
+```
+
 ## Guardrails
 
 - Keyword blacklist (e.g., `ironman`, `avengers`, `naruto`, `batman`)

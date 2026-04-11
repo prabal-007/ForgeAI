@@ -100,7 +100,8 @@ def run_stage(db: Session, product_id: UUID) -> StageActionResponse:
         output = compliance_agent(payload)
         product = save_stage_output(db, product, ProductStage.COMPLIANCE.value, output)
         if output.get("decision") == "fail":
-            reason = "; ".join(output.get("issues", [])) or "Compliance failed"
+            issue_reasons = [item.get("reason", "") for item in output.get("issues", []) if isinstance(item, dict)]
+            reason = "; ".join([r for r in issue_reasons if r]) or "Compliance failed"
             product = reject_current_stage(db, product, reason=reason)
             return StageActionResponse(product=_to_response(product), message="Compliance failed. Product rejected.")
     elif product.stage == ProductStage.READY.value:
