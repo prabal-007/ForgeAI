@@ -19,4 +19,7 @@ def run_prompt(prompt: str) -> dict:
         ],
     )
     content = response.choices[0].message.content or "{}"
-    return json.loads(content)
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        return {}

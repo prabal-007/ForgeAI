@@ -28,8 +28,7 @@ VISUAL_RISK_KEYWORDS = {
 
 
 def _collect_hits(text: str, dictionary: Iterable[str]) -> list[str]:
-    lowered = text.lower()
-    return [item for item in dictionary if item in lowered]
+    return [item for item in dictionary if re.search(rf"\b{re.escape(item)}\b", text, re.IGNORECASE)]
 
 
 def run_guardrails(text: str) -> dict:
