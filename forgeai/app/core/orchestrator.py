@@ -1,36 +1,124 @@
 from __future__ import annotations
 
+from uuid import UUID
+
+from sqlalchemy.orm import Session
+
 from app.agents.brand_agent import brand_agent
 from app.agents.compliance_agent import compliance_agent
 from app.agents.trend_agent import trend_agent
-from app.models.product import PipelineRunRequest, PipelineRunResponse, ProductState, Stage, StageStatus
+from app.db.models import Product, ProductStage, ProductStatus
+from app.models.product import ProductHistoryItem, ProductResponse, StageActionResponse
+from app.services.db_service import (
+    StateTransitionError,
+    approve_current_stage,
+    create_product,
+    get_product,
+    reject_current_stage,
+    save_stage_output,
+    set_stage,
+)
 
 
-def run_pipeline(request: PipelineRunRequest) -> PipelineRunResponse:
-    state = ProductState(stage=Stage.IDEA, status=StageStatus.PENDING)
+def _regeneration_notes(product: Product) -> str | None:
+    failure_reasons = (product.data or {}).get("failure_reasons", [])
+    if not failure_reasons:
+        return None
+    return f"Avoid previous issues: {', '.join(failure_reasons)}"
 
-    idea = trend_agent(request.brief)
-    state.data[Stage.IDEA.value] = idea
 
-    if not request.approve_idea:
-        return PipelineRunResponse(state=state, next_action="Approve IDEA stage to continue.")
+def _to_response(product: Product) -> ProductResponse:
+    return ProductResponse(
+        id=product.id,
+        stage=product.stage,
+        status=product.status,
+        data=product.data or {},
+        created_at=product.created_at,
+        history=[
+            ProductHistoryItem(
+                from_stage=item.from_stage,
+                to_stage=item.to_stage,
+                action=item.action,
+                reason=item.reason,
+                created_at=item.created_at,
+            )
+            for item in product.history
+        ],
+    )
 
-    state.stage = Stage.BRAND
-    state.status = StageStatus.PENDING
-    brand = brand_agent(idea)
-    state.data[Stage.BRAND.value] = brand
 
-    if not request.approve_brand:
-        return PipelineRunResponse(state=state, next_action="Approve BRAND stage to run compliance.")
+def create_pipeline_product(db: Session, brief: str) -> StageActionResponse:
+    product = create_product(db, brief)
+    return StageActionResponse(product=_to_response(product), message="Product created at IDEA stage.")
 
-    state.stage = Stage.COMPLIANCE
-    compliance = compliance_agent({"idea": idea, "brand": brand})
-    state.data[Stage.COMPLIANCE.value] = compliance
 
-    if compliance.get("decision") == "fail":
-        state.status = StageStatus.REJECTED
-        return PipelineRunResponse(state=state, next_action="Pipeline failed compliance checks.")
+def run_stage(db: Session, product_id: UUID) -> StageActionResponse:
+    product = get_product(db, product_id)
+    if product.status == ProductStatus.REJECTED.value and product.stage != ProductStage.COMPLIANCE.value:
+        raise StateTransitionError("Rejected stage must be regenerated before running again")
 
-    state.stage = Stage.READY
-    state.status = StageStatus.APPROVED
-    return PipelineRunResponse(state=state, next_action="Product is READY for listing metadata generation.")
+    notes = _regeneration_notes(product)
+
+    if product.stage == ProductStage.IDEA.value:
+        brief = (product.data or {}).get("brief", "")
+        output = trend_agent(brief=brief, regeneration_notes=notes)
+        product = save_stage_output(db, product, ProductStage.IDEA.value, output)
+    elif product.stage == ProductStage.BRAND.value:
+        idea_output = (product.data or {}).get("idea_output", {})
+        output = brand_agent(idea_json=idea_output, regeneration_notes=notes)
+        product = save_stage_output(db, product, ProductStage.BRAND.value, output)
+    elif product.stage == ProductStage.COMPLIANCE.value:
+        payload = {
+            "idea": (product.data or {}).get("idea_output", {}),
+            "brand": (product.data or {}).get("brand_output", {}),
+        }
+        output = compliance_agent(payload)
+        product = save_stage_output(db, product, ProductStage.COMPLIANCE.value, output)
+        if output.get("decision") == "fail":
+            reason = "; ".join(output.get("issues", [])) or "Compliance failed"
+            product = reject_current_stage(db, product, reason=reason)
+            return StageActionResponse(product=_to_response(product), message="Compliance failed. Product rejected.")
+    elif product.stage == ProductStage.READY.value:
+        raise StateTransitionError("READY stage cannot be run")
+    else:
+        raise StateTransitionError(f"Unknown stage '{product.stage}'")
+
+    return StageActionResponse(product=_to_response(product), message=f"Stage '{product.stage}' executed.")
+
+
+def approve_stage(db: Session, product_id: UUID) -> StageActionResponse:
+    product = get_product(db, product_id)
+    product = approve_current_stage(db, product)
+    return StageActionResponse(product=_to_response(product), message=f"Advanced to '{product.stage}' stage.")
+
+
+def reject_stage(db: Session, product_id: UUID, reason: str | None = None) -> StageActionResponse:
+    product = get_product(db, product_id)
+    product = reject_current_stage(db, product, reason=reason)
+    return StageActionResponse(product=_to_response(product), message=f"Stage '{product.stage}' rejected.")
+
+
+def regenerate_stage(db: Session, product_id: UUID) -> StageActionResponse:
+    product = get_product(db, product_id)
+    if product.status != ProductStatus.REJECTED.value:
+        raise StateTransitionError("Only rejected products can be regenerated")
+
+    # When compliance fails, iterate by regenerating brand using failure reasons.
+    if product.stage == ProductStage.COMPLIANCE.value:
+        product = set_stage(
+            db,
+            product,
+            new_stage=ProductStage.BRAND.value,
+            reason="Compliance failure triggered brand regeneration",
+            action="regenerate",
+        )
+    else:
+        product = set_stage(
+            db,
+            product,
+            new_stage=product.stage,
+            reason="Manual regeneration",
+            action="regenerate",
+        )
+
+    return run_stage(db, product.id)

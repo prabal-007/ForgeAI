@@ -1,17 +1,15 @@
 from __future__ import annotations
 
+from datetime import datetime
 from enum import Enum
-from typing import Any
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
 
 class Stage(str, Enum):
     IDEA = "idea"
-    VALIDATION = "validation"
     BRAND = "brand"
-    DESIGN = "design"
-    CONTENT = "content"
     COMPLIANCE = "compliance"
     READY = "ready"
 
@@ -22,18 +20,31 @@ class StageStatus(str, Enum):
     REJECTED = "rejected"
 
 
-class ProductState(BaseModel):
-    stage: Stage = Stage.IDEA
-    status: StageStatus = StageStatus.PENDING
-    data: dict[str, Any] = Field(default_factory=dict)
+class ProductCreateRequest(BaseModel):
+    brief: str = Field(..., min_length=10)
 
 
-class PipelineRunRequest(BaseModel):
-    brief: str = Field(..., min_length=10, description="Product idea brief.")
-    approve_idea: bool = False
-    approve_brand: bool = False
+class ProductTransitionRequest(BaseModel):
+    reason: str | None = None
 
 
-class PipelineRunResponse(BaseModel):
-    state: ProductState
-    next_action: str
+class ProductHistoryItem(BaseModel):
+    from_stage: str | None
+    to_stage: str
+    action: str
+    reason: str | None = None
+    created_at: datetime
+
+
+class ProductResponse(BaseModel):
+    id: UUID
+    stage: Stage
+    status: StageStatus
+    data: dict
+    created_at: datetime
+    history: list[ProductHistoryItem] = Field(default_factory=list)
+
+
+class StageActionResponse(BaseModel):
+    product: ProductResponse
+    message: str

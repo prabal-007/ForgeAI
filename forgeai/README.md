@@ -7,24 +7,41 @@ ForgeAI is an AI-powered publishing engine for generating **original, legally sa
 - Trend Agent (safe niche ideation)
 - Brand Agent (original brand identity)
 - Compliance Agent (hard IP gate)
-- Stateful orchestrator (IDEA → BRAND → COMPLIANCE → READY in MVP)
-- FastAPI endpoint to run pipeline with human approvals
+- PostgreSQL-backed product persistence
+- Strict state machine + transition history
+
+## Pipeline State Machine
+
+`idea -> brand -> compliance -> ready`
+
+Only valid forward transitions are allowed via `approve_stage`.
 
 ## API
 
-### Run Pipeline
-
-`POST /pipeline/run`
-
-Example payload:
+### Create Product
+`POST /pipeline/products`
 
 ```json
-{
-  "brief": "Mindful productivity journal for remote workers",
-  "approve_idea": true,
-  "approve_brand": true
-}
+{ "brief": "Mindful productivity journal for remote workers" }
 ```
+
+### Run Current Stage
+`POST /pipeline/{product_id}/run`
+
+### Approve Current Stage
+`POST /pipeline/{product_id}/approve`
+
+### Reject Current Stage
+`POST /pipeline/{product_id}/reject`
+
+```json
+{ "reason": "Needs better uniqueness" }
+```
+
+### Regenerate After Failure
+`POST /pipeline/{product_id}/regenerate`
+
+Regeneration passes prior failure reasons into agent prompts as guidance.
 
 ## Guardrails
 
@@ -32,7 +49,7 @@ Example payload:
 - Pattern detection (`inspired by`, `like ...`)
 - Visual risk heuristics (`armor suit`, `glowing eyes`, etc.)
 
-If guardrails fail, the pipeline is rejected before final compliance scoring.
+If guardrails fail, compliance rejects the product and stores failure reasons.
 
 ## Run
 
