@@ -22,6 +22,16 @@ class StageStatus(str, Enum):
     REJECTED = "rejected"
 
 
+PIPELINE_STAGE_ORDER = (
+    Stage.IDEA.value,
+    Stage.BRAND.value,
+    Stage.DESIGN.value,
+    Stage.CONTENT.value,
+    Stage.COMPLIANCE.value,
+    Stage.READY.value,
+)
+
+
 class ProductCreateRequest(BaseModel):
     brief: str = Field(..., min_length=10)
 

@@ -4,7 +4,7 @@ import uuid
 
 from sqlalchemy.orm import Session
 
-from app.db.models import Product, ProductHistory, ProductStage, ProductStatus
+from app.db.models import PIPELINE_STAGE_ORDER, Product, ProductHistory, ProductStage, ProductStatus
 
 NEXT_STAGE = {
     ProductStage.IDEA.value: ProductStage.BRAND.value,
@@ -117,7 +117,7 @@ def reject_current_stage(db: Session, product: Product, reason: str | None = Non
 
 
 def set_stage(db: Session, product: Product, new_stage: str, reason: str | None = None, action: str = "transition") -> Product:
-    if new_stage not in {s.value for s in ProductStage}:
+    if new_stage not in PIPELINE_STAGE_ORDER:
         raise StateTransitionError(f"Invalid target stage '{new_stage}'")
 
     old_stage = product.stage

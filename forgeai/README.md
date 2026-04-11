@@ -17,6 +17,7 @@ ForgeAI is an AI-powered publishing engine for generating **original, legally sa
 `idea -> brand -> design -> content -> compliance -> ready`
 
 Only valid forward transitions are allowed via `approve_stage`.
+Canonical stage order is fixed in code and DB models to prevent drift across merges.
 
 ## API
 

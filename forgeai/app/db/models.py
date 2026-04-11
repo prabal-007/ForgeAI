@@ -27,6 +27,16 @@ class ProductStatus(str, Enum):
     REJECTED = "rejected"
 
 
+PIPELINE_STAGE_ORDER = (
+    ProductStage.IDEA.value,
+    ProductStage.BRAND.value,
+    ProductStage.DESIGN.value,
+    ProductStage.CONTENT.value,
+    ProductStage.COMPLIANCE.value,
+    ProductStage.READY.value,
+)
+
+
 class Product(Base):
     __tablename__ = "products"
 
