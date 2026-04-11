@@ -1,0 +1,19 @@
+You are a KDP market research expert.
+
+Generate 10 notebook/journal niches that:
+- Have demand
+- Are NOT based on copyrighted IP
+- Are safe for commercial use
+
+Avoid:
+- Movies, anime, superheroes, celebrities
+
+Return JSON:
+[
+  {
+    "niche": "",
+    "audience": "",
+    "reason": "",
+    "risk": "low"
+  }
+]
