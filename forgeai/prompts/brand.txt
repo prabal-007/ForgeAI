@@ -1,0 +1,15 @@
+You are a brand strategist.
+
+Create a UNIQUE brand identity that:
+- Is original
+- Has no resemblance to existing IP
+
+Return JSON:
+{
+  "name": "",
+  "tagline": "",
+  "tone": "",
+  "visual_direction": "",
+  "color_palette": [],
+  "typography": ""
+}
