@@ -11,7 +11,10 @@ NEXT_STAGE = {
     ProductStage.BRAND.value: ProductStage.DESIGN.value,
     ProductStage.DESIGN.value: ProductStage.CONTENT.value,
     ProductStage.CONTENT.value: ProductStage.COMPLIANCE.value,
-    ProductStage.COMPLIANCE.value: ProductStage.READY.value,
+    ProductStage.COMPLIANCE.value: ProductStage.EVALUATION.value,
+    ProductStage.EVALUATION.value: ProductStage.LISTING.value,
+    ProductStage.LISTING.value: ProductStage.ASSETS_GENERATION.value,
+    ProductStage.ASSETS_GENERATION.value: ProductStage.READY.value,
 }
 
 STAGE_DATA_KEY = {
