@@ -146,6 +146,34 @@ def run_stage(db: Session, product_id: UUID) -> StageActionResponse:
                 product = reject_current_stage(db, product, reason=reason)
                 product = _commit_and_refresh(db, product)
                 return StageActionResponse(product=_to_response(product), message="Compliance failed. Product rejected.")
+        elif product.stage == ProductStage.EVALUATION.value:
+            raise StateTransitionError("EVALUATION stage is review-only; approve or reject it without running")
+        elif product.stage == ProductStage.LISTING.value:
+            data = product.data or {}
+            evaluation_output = data.get("evaluation") or data.get("evaluation_output")
+            if not isinstance(evaluation_output, dict):
+                evaluation_output = {}
+
+            idea_output = data.get("idea_output") or {}
+            niche = idea_output.get("niche") or data.get("brief") or "general niche"
+
+            brand_output = data.get("brand_output") or {}
+            brand = brand_output.get("name") or "Original brand"
+
+            evaluation_positioning = {
+                "why_it_will_sell": evaluation_output.get("why_it_will_sell", ""),
+                "target_customer": evaluation_output.get("target_customer", ""),
+                "use_case": evaluation_output.get("use_case", ""),
+            }
+
+            output = listing_agent(
+                niche=niche,
+                brand=brand,
+                evaluation_positioning=evaluation_positioning,
+                regeneration_notes=notes,
+            )
+            _validate_listing_output(output)
+            product = save_stage_output(db, product, ProductStage.LISTING.value, output)
         elif product.stage == ProductStage.ASSETS_GENERATION.value:
             data = product.data or {}
             content = data.get("content", {})
