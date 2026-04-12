@@ -69,7 +69,7 @@ def run_stage(db: Session, product_id: UUID) -> StageActionResponse:
     # Strict stage handling follows the persisted pipeline order in db models (conflict-safe).
     try:
         product = get_product(db, product_id)
-        if product.status == ProductStatus.REJECTED.value and product.stage != ProductStage.COMPLIANCE.value:
+        if product.status == ProductStatus.REJECTED.value:
             raise StateTransitionError("Rejected stage must be regenerated before running again")
 
         notes = _regeneration_notes(product)
