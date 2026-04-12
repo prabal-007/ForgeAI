@@ -11,6 +11,7 @@ from app.agents.design_agent import design_agent
 from app.agents.trend_agent import trend_agent
 from app.db.models import Product, ProductStage, ProductStatus
 from app.models.product import ProductHistoryItem, ProductResponse, StageActionResponse
+from app.services.cover_service import generate_cover
 from app.services.db_service import (
     StateTransitionError,
     approve_current_stage,
@@ -90,6 +91,12 @@ def run_stage(db: Session, product_id: UUID) -> StageActionResponse:
                 niche = (product.data or {}).get("brief", "general niche")
             output = design_agent(brand_identity=brand_output, niche=niche, regeneration_notes=notes)
             product = save_stage_output(db, product, ProductStage.DESIGN.value, output)
+
+            data = dict(product.data or {})
+            cover_artifact = generate_cover(best_design_concept=output, product_id=product.id)
+            data["cover"] = cover_artifact
+            product.data = data
+            db.flush()
         elif product.stage == ProductStage.CONTENT.value:
             idea_output = (product.data or {}).get("idea_output", {})
             niche = idea_output.get("niche") if isinstance(idea_output, dict) else None
