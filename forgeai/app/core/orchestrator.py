@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -22,6 +23,7 @@ from app.services.db_service import (
     save_stage_output,
     set_stage,
 )
+from app.services.pdf_generator import generate_interior_pdf
 
 
 def _regeneration_notes(product: Product) -> str | None:
@@ -144,37 +146,25 @@ def run_stage(db: Session, product_id: UUID) -> StageActionResponse:
                 product = reject_current_stage(db, product, reason=reason)
                 product = _commit_and_refresh(db, product)
                 return StageActionResponse(product=_to_response(product), message="Compliance failed. Product rejected.")
-        elif product.stage == "evaluation":
-            evaluation_output = (product.data or {}).get("evaluation", {})
-            if not evaluation_output and isinstance((product.data or {}).get("evaluation_output"), dict):
-                evaluation_output = (product.data or {}).get("evaluation_output", {})
+        elif product.stage == ProductStage.ASSETS_GENERATION.value:
+            data = product.data or {}
+            content = data.get("content", {})
+            sections = content.get("sections", []) if isinstance(content, dict) else []
+            if not isinstance(sections, list) or not sections:
+                raise StateTransitionError("Cannot generate assets without content.sections")
 
-            idea_output = (product.data or {}).get("idea_output", {})
-            niche = idea_output.get("niche") if isinstance(idea_output, dict) else None
-            if not niche:
-                niche = (product.data or {}).get("brief", "general niche")
+            interior_pdf = generate_interior_pdf(sections=sections, output_name=f"product-{product.id}")
+            if not Path(interior_pdf).is_file() or Path(interior_pdf).stat().st_size <= 0:
+                raise StateTransitionError("Interior PDF generation failed")
 
-            brand_output = (product.data or {}).get("brand_output", {})
-            brand = brand_output.get("name") if isinstance(brand_output, dict) else None
-            if not brand:
-                brand = "Original brand"
-
-            evaluation_positioning = {}
-            if isinstance(evaluation_output, dict):
-                evaluation_positioning = {
-                    "why_it_will_sell": evaluation_output.get("why_it_will_sell", ""),
-                    "target_customer": evaluation_output.get("target_customer", ""),
-                    "use_case": evaluation_output.get("use_case", ""),
-                }
-
-            output = listing_agent(
-                niche=niche,
-                brand=brand,
-                evaluation_positioning=evaluation_positioning,
-                regeneration_notes=notes,
-            )
-            _validate_listing_output(output)
-            product = save_stage_output(db, product, "listing", output)
+            data["interior_pdf"] = interior_pdf
+            data["assets_generation"] = {
+                "status": "completed",
+                "interior_pdf": interior_pdf,
+                "source_sections": len(sections),
+            }
+            product.data = data
+            product = save_stage_output(db, product, ProductStage.ASSETS_GENERATION.value, data["assets_generation"])
         elif product.stage == ProductStage.READY.value:
             raise StateTransitionError("READY stage cannot be run")
         else:
