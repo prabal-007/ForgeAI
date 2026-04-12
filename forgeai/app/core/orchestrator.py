@@ -9,9 +9,11 @@ from app.agents.brand_agent import brand_agent
 from app.agents.compliance_agent import compliance_agent
 from app.agents.content_agent import content_agent
 from app.agents.design_agent import design_agent
+from app.agents.listing_agent import listing_agent
 from app.agents.trend_agent import trend_agent
 from app.db.models import Product, ProductStage, ProductStatus
 from app.models.product import ProductHistoryItem, ProductResponse, StageActionResponse
+from app.services.cover_service import generate_cover
 from app.services.db_service import (
     StateTransitionError,
     approve_current_stage,
@@ -57,6 +59,24 @@ def _commit_and_refresh(db: Session, product: Product) -> Product:
     return product
 
 
+def _validate_listing_output(output: dict) -> None:
+    required_keys = ("title", "subtitle", "description", "keywords")
+    missing = [key for key in required_keys if key not in output]
+    if missing:
+        raise ValueError(f"Invalid listing output: missing required keys: {', '.join(missing)}")
+
+    for field in ("title", "subtitle", "description"):
+        if not isinstance(output[field], str):
+            raise ValueError(f"Invalid listing output: '{field}' must be a string")
+
+    keywords = output["keywords"]
+    if not isinstance(keywords, list):
+        raise ValueError("Invalid listing output: 'keywords' must be a list of strings")
+    invalid_keyword_items = [item for item in keywords if not isinstance(item, str)]
+    if invalid_keyword_items:
+        raise ValueError("Invalid listing output: 'keywords' must contain only strings")
+
+
 def create_pipeline_product(db: Session, brief: str) -> StageActionResponse:
     try:
         product = create_product(db, brief)
@@ -92,6 +112,12 @@ def run_stage(db: Session, product_id: UUID) -> StageActionResponse:
                 niche = (product.data or {}).get("brief", "general niche")
             output = design_agent(brand_identity=brand_output, niche=niche, regeneration_notes=notes)
             product = save_stage_output(db, product, ProductStage.DESIGN.value, output)
+
+            data = dict(product.data or {})
+            cover_artifact = generate_cover(best_design_concept=output, product_id=product.id)
+            data["cover"] = cover_artifact
+            product.data = data
+            db.flush()
         elif product.stage == ProductStage.CONTENT.value:
             idea_output = (product.data or {}).get("idea_output", {})
             niche = idea_output.get("niche") if isinstance(idea_output, dict) else None
