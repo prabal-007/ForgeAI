@@ -23,9 +23,7 @@ STAGE_DATA_KEY = {
     ProductStage.DESIGN.value: "design",
     ProductStage.CONTENT.value: "content",
     ProductStage.COMPLIANCE.value: "compliance_output",
-    ProductStage.EVALUATION.value: "evaluation",
-    ProductStage.LISTING.value: "listing",
-    ProductStage.ASSETS_GENERATION.value: "assets_generation",
+    "listing": "listing",
 }
 
 

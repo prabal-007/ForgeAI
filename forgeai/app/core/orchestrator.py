@@ -8,6 +8,7 @@ from app.agents.brand_agent import brand_agent
 from app.agents.compliance_agent import compliance_agent
 from app.agents.content_agent import content_agent
 from app.agents.design_agent import design_agent
+from app.agents.listing_agent import listing_agent
 from app.agents.trend_agent import trend_agent
 from app.db.models import Product, ProductStage, ProductStatus
 from app.models.product import ProductHistoryItem, ProductResponse, StageActionResponse
@@ -53,6 +54,24 @@ def _commit_and_refresh(db: Session, product: Product) -> Product:
     db.commit()
     db.refresh(product)
     return product
+
+
+def _validate_listing_output(output: dict) -> None:
+    required_keys = ("title", "subtitle", "description", "keywords")
+    missing = [key for key in required_keys if key not in output]
+    if missing:
+        raise ValueError(f"Invalid listing output: missing required keys: {', '.join(missing)}")
+
+    for field in ("title", "subtitle", "description"):
+        if not isinstance(output[field], str):
+            raise ValueError(f"Invalid listing output: '{field}' must be a string")
+
+    keywords = output["keywords"]
+    if not isinstance(keywords, list):
+        raise ValueError("Invalid listing output: 'keywords' must be a list of strings")
+    invalid_keyword_items = [item for item in keywords if not isinstance(item, str)]
+    if invalid_keyword_items:
+        raise ValueError("Invalid listing output: 'keywords' must contain only strings")
 
 
 def create_pipeline_product(db: Session, brief: str) -> StageActionResponse:
@@ -118,43 +137,37 @@ def run_stage(db: Session, product_id: UUID) -> StageActionResponse:
                 product = reject_current_stage(db, product, reason=reason)
                 product = _commit_and_refresh(db, product)
                 return StageActionResponse(product=_to_response(product), message="Compliance failed. Product rejected.")
-        elif product.stage == ProductStage.EVALUATION.value:
-            compliance_output = (product.data or {}).get("compliance_output", {})
-            output = {
-                "decision": "approved_for_listing",
-                "compliance_decision": compliance_output.get("decision"),
-                "risk": compliance_output.get("risk"),
-                "issues_count": len(compliance_output.get("issues", []))
-                if isinstance(compliance_output.get("issues"), list)
-                else 0,
-            }
-            product = save_stage_output(db, product, ProductStage.EVALUATION.value, output)
-        elif product.stage == ProductStage.LISTING.value:
+        elif product.stage == "evaluation":
+            evaluation_output = (product.data or {}).get("evaluation", {})
+            if not evaluation_output and isinstance((product.data or {}).get("evaluation_output"), dict):
+                evaluation_output = (product.data or {}).get("evaluation_output", {})
+
             idea_output = (product.data or {}).get("idea_output", {})
+            niche = idea_output.get("niche") if isinstance(idea_output, dict) else None
+            if not niche:
+                niche = (product.data or {}).get("brief", "general niche")
+
             brand_output = (product.data or {}).get("brand_output", {})
-            content_output = (product.data or {}).get("content", {})
-            output = {
-                "title": brand_output.get("name") or idea_output.get("title") or "Untitled Product",
-                "subtitle": f"{idea_output.get('niche', 'General')} journal",
-                "description": content_output.get("description")
-                or "Structured interior built for practical daily use.",
-                "keywords": [
-                    kw for kw in [idea_output.get("niche"), brand_output.get("tone"), "kdp"] if isinstance(kw, str) and kw
-                ],
-            }
-            product = save_stage_output(db, product, ProductStage.LISTING.value, output)
-        elif product.stage == ProductStage.ASSETS_GENERATION.value:
-            design_output = (product.data or {}).get("design", {})
-            listing_output = (product.data or {}).get("listing", {})
-            output = {
-                "cover_concepts": design_output.get("concepts", []) if isinstance(design_output, dict) else [],
-                "listing_preview": {
-                    "title": listing_output.get("title") if isinstance(listing_output, dict) else None,
-                    "subtitle": listing_output.get("subtitle") if isinstance(listing_output, dict) else None,
-                },
-                "status": "generated",
-            }
-            product = save_stage_output(db, product, ProductStage.ASSETS_GENERATION.value, output)
+            brand = brand_output.get("name") if isinstance(brand_output, dict) else None
+            if not brand:
+                brand = "Original brand"
+
+            evaluation_positioning = {}
+            if isinstance(evaluation_output, dict):
+                evaluation_positioning = {
+                    "why_it_will_sell": evaluation_output.get("why_it_will_sell", ""),
+                    "target_customer": evaluation_output.get("target_customer", ""),
+                    "use_case": evaluation_output.get("use_case", ""),
+                }
+
+            output = listing_agent(
+                niche=niche,
+                brand=brand,
+                evaluation_positioning=evaluation_positioning,
+                regeneration_notes=notes,
+            )
+            _validate_listing_output(output)
+            product = save_stage_output(db, product, "listing", output)
         elif product.stage == ProductStage.READY.value:
             raise StateTransitionError("READY stage cannot be run")
         else:
