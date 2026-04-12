@@ -11,7 +11,6 @@ NEXT_STAGE = {
     ProductStage.BRAND.value: ProductStage.DESIGN.value,
     ProductStage.DESIGN.value: ProductStage.CONTENT.value,
     ProductStage.CONTENT.value: ProductStage.COMPLIANCE.value,
-    ProductStage.COMPLIANCE.value: ProductStage.ASSETS_GENERATION.value,
     ProductStage.COMPLIANCE.value: ProductStage.EVALUATION.value,
     ProductStage.EVALUATION.value: ProductStage.LISTING.value,
     ProductStage.LISTING.value: ProductStage.ASSETS_GENERATION.value,
@@ -24,8 +23,9 @@ STAGE_DATA_KEY = {
     ProductStage.DESIGN.value: "design",
     ProductStage.CONTENT.value: "content",
     ProductStage.COMPLIANCE.value: "compliance_output",
+    ProductStage.EVALUATION.value: "evaluation",
+    ProductStage.LISTING.value: "listing",
     ProductStage.ASSETS_GENERATION.value: "assets_generation",
-    "listing": "listing",
 }
 
 

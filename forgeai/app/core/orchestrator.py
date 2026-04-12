@@ -146,6 +146,39 @@ def run_stage(db: Session, product_id: UUID) -> StageActionResponse:
                 product = reject_current_stage(db, product, reason=reason)
                 product = _commit_and_refresh(db, product)
                 return StageActionResponse(product=_to_response(product), message="Compliance failed. Product rejected.")
+        elif product.stage == ProductStage.EVALUATION.value:
+            raise StateTransitionError("EVALUATION stage is review-only; approve or reject it without running")
+        elif product.stage == ProductStage.LISTING.value:
+            evaluation_output = (product.data or {}).get("evaluation", {})
+            if not evaluation_output and isinstance((product.data or {}).get("evaluation_output"), dict):
+                evaluation_output = (product.data or {}).get("evaluation_output", {})
+
+            idea_output = (product.data or {}).get("idea_output", {})
+            niche = idea_output.get("niche") if isinstance(idea_output, dict) else None
+            if not niche:
+                niche = (product.data or {}).get("brief", "general niche")
+
+            brand_output = (product.data or {}).get("brand_output", {})
+            brand = brand_output.get("name") if isinstance(brand_output, dict) else None
+            if not brand:
+                brand = "Original brand"
+
+            evaluation_positioning = {}
+            if isinstance(evaluation_output, dict):
+                evaluation_positioning = {
+                    "why_it_will_sell": evaluation_output.get("why_it_will_sell", ""),
+                    "target_customer": evaluation_output.get("target_customer", ""),
+                    "use_case": evaluation_output.get("use_case", ""),
+                }
+
+            output = listing_agent(
+                niche=niche,
+                brand=brand,
+                evaluation_positioning=evaluation_positioning,
+                regeneration_notes=notes,
+            )
+            _validate_listing_output(output)
+            product = save_stage_output(db, product, ProductStage.LISTING.value, output)
         elif product.stage == ProductStage.ASSETS_GENERATION.value:
             data = product.data or {}
             content = data.get("content", {})
