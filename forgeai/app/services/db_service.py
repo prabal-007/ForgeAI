@@ -20,6 +20,7 @@ STAGE_DATA_KEY = {
     ProductStage.DESIGN.value: "design",
     ProductStage.CONTENT.value: "content",
     ProductStage.COMPLIANCE.value: "compliance_output",
+    "listing": "listing",
 }
 
 
