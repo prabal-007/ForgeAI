@@ -118,6 +118,43 @@ def run_stage(db: Session, product_id: UUID) -> StageActionResponse:
                 product = reject_current_stage(db, product, reason=reason)
                 product = _commit_and_refresh(db, product)
                 return StageActionResponse(product=_to_response(product), message="Compliance failed. Product rejected.")
+        elif product.stage == ProductStage.EVALUATION.value:
+            compliance_output = (product.data or {}).get("compliance_output", {})
+            output = {
+                "decision": "approved_for_listing",
+                "compliance_decision": compliance_output.get("decision"),
+                "risk": compliance_output.get("risk"),
+                "issues_count": len(compliance_output.get("issues", []))
+                if isinstance(compliance_output.get("issues"), list)
+                else 0,
+            }
+            product = save_stage_output(db, product, ProductStage.EVALUATION.value, output)
+        elif product.stage == ProductStage.LISTING.value:
+            idea_output = (product.data or {}).get("idea_output", {})
+            brand_output = (product.data or {}).get("brand_output", {})
+            content_output = (product.data or {}).get("content", {})
+            output = {
+                "title": brand_output.get("name") or idea_output.get("title") or "Untitled Product",
+                "subtitle": f"{idea_output.get('niche', 'General')} journal",
+                "description": content_output.get("description")
+                or "Structured interior built for practical daily use.",
+                "keywords": [
+                    kw for kw in [idea_output.get("niche"), brand_output.get("tone"), "kdp"] if isinstance(kw, str) and kw
+                ],
+            }
+            product = save_stage_output(db, product, ProductStage.LISTING.value, output)
+        elif product.stage == ProductStage.ASSETS_GENERATION.value:
+            design_output = (product.data or {}).get("design", {})
+            listing_output = (product.data or {}).get("listing", {})
+            output = {
+                "cover_concepts": design_output.get("concepts", []) if isinstance(design_output, dict) else [],
+                "listing_preview": {
+                    "title": listing_output.get("title") if isinstance(listing_output, dict) else None,
+                    "subtitle": listing_output.get("subtitle") if isinstance(listing_output, dict) else None,
+                },
+                "status": "generated",
+            }
+            product = save_stage_output(db, product, ProductStage.ASSETS_GENERATION.value, output)
         elif product.stage == ProductStage.READY.value:
             raise StateTransitionError("READY stage cannot be run")
         else:
