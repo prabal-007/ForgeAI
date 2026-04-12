@@ -4,9 +4,80 @@ from pathlib import Path
 from typing import Any
 
 from reportlab.lib.pagesizes import LETTER
-from reportlab.pdfgen import canvas
+from reportlab.pdfgen.canvas import Canvas
 
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parents[2] / "generated_assets" / "interiors"
+
+# Printable width matches lined pages (72 pt margins on LETTER).
+LEFT_MARGIN = 72.0
+RIGHT_MARGIN = LETTER[0] - 72.0
+MAX_TEXT_WIDTH = RIGHT_MARGIN - LEFT_MARGIN
+
+
+def _wrap_text_to_lines(c: Canvas, text: str, font_name: str, font_size: float, max_width: float) -> list[str]:
+    """Break text into lines that fit within max_width using the canvas font metrics."""
+    text = " ".join(text.split())
+    if not text:
+        return []
+
+    def line_width(parts: list[str]) -> float:
+        if not parts:
+            return 0.0
+        return c.stringWidth(" ".join(parts), font_name, font_size)
+
+    def split_oversized_word(word: str) -> list[str]:
+        if line_width([word]) <= max_width:
+            return [word]
+        chunks: list[str] = []
+        buf = ""
+        for ch in word:
+            trial = buf + ch
+            if c.stringWidth(trial, font_name, font_size) <= max_width:
+                buf = trial
+            else:
+                if buf:
+                    chunks.append(buf)
+                buf = ch
+        if buf:
+            chunks.append(buf)
+        return chunks
+
+    words: list[str] = []
+    for w in text.split():
+        words.extend(split_oversized_word(w))
+
+    lines: list[str] = []
+    current: list[str] = []
+    for w in words:
+        trial = current + [w]
+        if line_width(trial) <= max_width:
+            current.append(w)
+        else:
+            if current:
+                lines.append(" ".join(current))
+            current = [w]
+    if current:
+        lines.append(" ".join(current))
+    return lines
+
+
+def _draw_wrapped_block(
+    c: Canvas,
+    text: str,
+    font_name: str,
+    font_size: float,
+    x: float,
+    start_y: float,
+    max_width: float,
+    line_gap: float,
+) -> float:
+    """Draw wrapped lines from start_y downward; return the y coordinate after the last line."""
+    c.setFont(font_name, font_size)
+    y = start_y
+    for line in _wrap_text_to_lines(c, text, font_name, font_size, max_width):
+        c.drawString(x, y, line)
+        y -= line_gap
+    return y
 
 
 def _coerce_page_count(raw_pages: Any, default: int = 1) -> int:
@@ -19,18 +90,23 @@ def _coerce_page_count(raw_pages: Any, default: int = 1) -> int:
     return default
 
 
-def _draw_journal_template(pdf: canvas.Canvas, section_name: str, page_number: int) -> None:
+def _draw_journal_template(pdf: Canvas, section_name: str, page_number: int) -> None:
     width, height = LETTER
 
     pdf.setFont("Helvetica-Bold", 12)
-    pdf.drawString(72, height - 72, section_name)
+    header_lines = _wrap_text_to_lines(pdf, section_name, "Helvetica-Bold", 12, MAX_TEXT_WIDTH)
+    y_cursor = height - 72
+    for line in header_lines:
+        pdf.drawString(LEFT_MARGIN, y_cursor, line)
+        y_cursor -= 14
 
     pdf.setFont("Helvetica", 9)
-    pdf.drawRightString(width - 72, height - 72, f"Page {page_number}")
+    pdf.drawRightString(RIGHT_MARGIN, height - 72, f"Page {page_number}")
 
-    y = height - 105
+    # Start ruled area below wrapped header (avoid overlap when title uses multiple lines)
+    y = min(y_cursor - 10, height - 105)
     for _ in range(28):
-        pdf.line(72, y, width - 72, y)
+        pdf.line(LEFT_MARGIN, y, RIGHT_MARGIN, y)
         y -= 22
 
 
@@ -42,7 +118,7 @@ def generate_interior_pdf(sections: list[dict[str, Any]], output_name: str) -> s
     DEFAULT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     output_path = DEFAULT_OUTPUT_DIR / f"{output_name}.pdf"
 
-    pdf = canvas.Canvas(str(output_path), pagesize=LETTER)
+    pdf = Canvas(str(output_path), pagesize=LETTER)
     width, height = LETTER
 
     # Title page
@@ -58,11 +134,30 @@ def generate_interior_pdf(sections: list[dict[str, Any]], output_name: str) -> s
         section_purpose = str(section.get("purpose") or "")
         section_pages = _coerce_page_count(section.get("pages"), default=1)
 
-        # Section header page
-        pdf.setFont("Helvetica-Bold", 22)
-        pdf.drawString(72, height - 120, section_name)
-        pdf.setFont("Helvetica", 12)
-        pdf.drawString(72, height - 150, f"Purpose: {section_purpose}")
+        # Section header page (wrapped title + purpose within margins)
+        y = height - 100
+        y = _draw_wrapped_block(
+            pdf,
+            section_name,
+            "Helvetica-Bold",
+            22,
+            LEFT_MARGIN,
+            y,
+            MAX_TEXT_WIDTH,
+            line_gap=26,
+        )
+        y -= 8
+        purpose_text = f"Purpose: {section_purpose}" if section_purpose.strip() else "Purpose: —"
+        _draw_wrapped_block(
+            pdf,
+            purpose_text,
+            "Helvetica",
+            12,
+            LEFT_MARGIN,
+            y,
+            MAX_TEXT_WIDTH,
+            line_gap=15,
+        )
         pdf.showPage()
 
         # Repeated journal template pages for each section

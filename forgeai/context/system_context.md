@@ -12,7 +12,9 @@ This system MUST NEVER generate or allow:
 ## Pipeline
 Each product flows through:
 
-IDEA → VALIDATION → BRAND → DESIGN → CONTENT → COMPLIANCE → READY
+IDEA → BRAND → DESIGN → CONTENT → COMPLIANCE → EVALUATION → LISTING → ASSETS_GENERATION → READY
+
+Design produces cover concepts; after compliance passes, evaluation and listing refine positioning; assets generation produces interior PDF and (with real image generation) the cover PNG. READY means the pack is complete for export or manual KDP upload.
 
 ## Architecture
 - Backend: FastAPI

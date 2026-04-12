@@ -3,8 +3,10 @@ from __future__ import annotations
 import uuid
 
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.db.models import Product, ProductHistory, ProductStage, ProductStatus, is_valid_stage
+from app.domain.listing_output import validate_listing_output
 
 NEXT_STAGE = {
     ProductStage.IDEA.value: ProductStage.BRAND.value,
@@ -77,6 +79,7 @@ def save_stage_output(db: Session, product: Product, stage: str, output: dict) -
     data_key = STAGE_DATA_KEY.get(stage, f"{stage}_output")
     data[data_key] = output
     product.data = data
+    flag_modified(product, "data")
     _record_history(db, product, action="run_stage", from_stage=stage, to_stage=stage)
     db.flush()
     return product
@@ -91,10 +94,20 @@ def approve_current_stage(db: Session, product: Product) -> Product:
         decision = (product.data or {}).get("compliance_output", {}).get("decision")
         if decision != "pass":
             raise StateTransitionError("Cannot approve compliance stage without a pass decision")
+    if current_stage == ProductStage.LISTING.value:
+        listing = (product.data or {}).get("listing")
+        if not isinstance(listing, dict):
+            raise StateTransitionError(
+                "Cannot approve listing without agent output: POST /pipeline/{product_id}/run first, then approve."
+            )
+        try:
+            validate_listing_output(listing)
+        except ValueError as exc:
+            raise StateTransitionError(str(exc)) from exc
     if current_stage == ProductStage.ASSETS_GENERATION.value:
         data = product.data or {}
         cover = data.get("cover", {})
-        interior_pdf = data.get("interior_pdf")
+        interior_pdf = data.get("interior_pdf") or (data.get("assets_generation") or {}).get("interior_pdf")
         if not isinstance(cover, dict) or not str(cover.get("image_url", "")).strip():
             raise StateTransitionError("Cannot advance to READY without a valid cover.image_url")
         if not isinstance(interior_pdf, str) or not interior_pdf.strip():
@@ -120,6 +133,7 @@ def reject_current_stage(db: Session, product: Product, reason: str | None = Non
         failure_reasons.append(reason)
         data["failure_reasons"] = failure_reasons
         product.data = data
+        flag_modified(product, "data")
 
     _record_history(db, product, action="reject", from_stage=product.stage, to_stage=product.stage, reason=reason)
     db.flush()

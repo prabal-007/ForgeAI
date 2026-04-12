@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.orchestrator import _to_response
 from app.db.models import Product
 from app.dependencies import get_db
+from app.services.export_service import export_product
 
 router = APIRouter(tags=["products"])
 
@@ -16,3 +17,18 @@ def get_product_route(product_id: UUID, db: Session = Depends(get_db)) -> dict:
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     return _to_response(product).model_dump()
+
+
+@router.post("/{product_id}/export")
+def export_product_route(product_id: UUID, db: Session = Depends(get_db)) -> dict:
+    try:
+        export_record = export_product(db, product_id)
+    except ValueError as exc:
+        detail = str(exc)
+        if "not found" in detail.lower():
+            raise HTTPException(status_code=404, detail=detail) from exc
+        raise HTTPException(status_code=400, detail=detail) from exc
+    product = db.get(Product, product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    return {"product": _to_response(product).model_dump(), "export": export_record}

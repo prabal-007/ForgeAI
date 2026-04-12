@@ -8,12 +8,17 @@ Generate 10 notebook/journal niches that:
 Avoid:
 - Movies, anime, superheroes, celebrities
 
-Return JSON:
-[
-  {
-    "niche": "",
-    "audience": "",
-    "reason": "",
-    "risk": "low"
-  }
-]
+Return a single JSON object (not a bare array). Include one primary niche string plus the full list:
+{
+  "niche": "The single best niche label for this brief (must match one of the list entries)",
+  "niches": [
+    {
+      "niche": "",
+      "audience": "",
+      "reason": "",
+      "risk": "low"
+    }
+  ]
+}
+
+Provide exactly 10 items in "niches". The "niche" field at the top level must be the chosen primary label for downstream brand and cover work.

@@ -4,6 +4,7 @@ from pathlib import Path
 from uuid import UUID
 
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.agents.brand_agent import brand_agent
 from app.agents.compliance_agent import compliance_agent
@@ -12,6 +13,8 @@ from app.agents.design_agent import design_agent
 from app.agents.listing_agent import listing_agent
 from app.agents.trend_agent import trend_agent
 from app.db.models import Product, ProductStage, ProductStatus
+from app.domain.idea_output import niche_from_idea_output
+from app.domain.listing_output import validate_listing_output
 from app.models.product import ProductHistoryItem, ProductResponse, StageActionResponse
 from app.services.cover_service import generate_cover
 from app.services.db_service import (
@@ -59,24 +62,6 @@ def _commit_and_refresh(db: Session, product: Product) -> Product:
     return product
 
 
-def _validate_listing_output(output: dict) -> None:
-    required_keys = ("title", "subtitle", "description", "keywords")
-    missing = [key for key in required_keys if key not in output]
-    if missing:
-        raise ValueError(f"Invalid listing output: missing required keys: {', '.join(missing)}")
-
-    for field in ("title", "subtitle", "description"):
-        if not isinstance(output[field], str):
-            raise ValueError(f"Invalid listing output: '{field}' must be a string")
-
-    keywords = output["keywords"]
-    if not isinstance(keywords, list):
-        raise ValueError("Invalid listing output: 'keywords' must be a list of strings")
-    invalid_keyword_items = [item for item in keywords if not isinstance(item, str)]
-    if invalid_keyword_items:
-        raise ValueError("Invalid listing output: 'keywords' must contain only strings")
-
-
 def create_pipeline_product(db: Session, brief: str) -> StageActionResponse:
     try:
         product = create_product(db, brief)
@@ -107,9 +92,8 @@ def run_stage(db: Session, product_id: UUID) -> StageActionResponse:
         elif product.stage == ProductStage.DESIGN.value:
             brand_output = (product.data or {}).get("brand_output", {})
             idea_output = (product.data or {}).get("idea_output", {})
-            niche = idea_output.get("niche") if isinstance(idea_output, dict) else None
-            if not niche:
-                niche = (product.data or {}).get("brief", "general niche")
+            data_brief = (product.data or {}).get("brief", "general niche")
+            niche = niche_from_idea_output(idea_output, str(data_brief))
             output = design_agent(brand_identity=brand_output, niche=niche, regeneration_notes=notes)
             product = save_stage_output(db, product, ProductStage.DESIGN.value, output)
 
@@ -117,12 +101,12 @@ def run_stage(db: Session, product_id: UUID) -> StageActionResponse:
             cover_artifact = generate_cover(best_design_concept=output, product_id=product.id)
             data["cover"] = cover_artifact
             product.data = data
+            flag_modified(product, "data")
             db.flush()
         elif product.stage == ProductStage.CONTENT.value:
             idea_output = (product.data or {}).get("idea_output", {})
-            niche = idea_output.get("niche") if isinstance(idea_output, dict) else None
-            if not niche:
-                niche = (product.data or {}).get("brief", "general niche")
+            data_brief = (product.data or {}).get("brief", "general niche")
+            niche = niche_from_idea_output(idea_output, str(data_brief))
 
             brand_output = (product.data or {}).get("brand_output", {})
             brand_tone = brand_output.get("tone") if isinstance(brand_output, dict) else None
@@ -149,13 +133,13 @@ def run_stage(db: Session, product_id: UUID) -> StageActionResponse:
         elif product.stage == ProductStage.EVALUATION.value:
             raise StateTransitionError("EVALUATION stage is review-only; approve or reject it without running")
         elif product.stage == ProductStage.LISTING.value:
-            data = product.data or {}
+            data = dict(product.data or {})
             evaluation_output = data.get("evaluation") or data.get("evaluation_output")
             if not isinstance(evaluation_output, dict):
                 evaluation_output = {}
 
             idea_output = data.get("idea_output") or {}
-            niche = idea_output.get("niche") or data.get("brief") or "general niche"
+            niche = niche_from_idea_output(idea_output, str(data.get("brief") or "general niche"))
 
             brand_output = data.get("brand_output") or {}
             brand = brand_output.get("name") or "Original brand"
@@ -172,10 +156,10 @@ def run_stage(db: Session, product_id: UUID) -> StageActionResponse:
                 evaluation_positioning=evaluation_positioning,
                 regeneration_notes=notes,
             )
-            _validate_listing_output(output)
+            validate_listing_output(output)
             product = save_stage_output(db, product, ProductStage.LISTING.value, output)
         elif product.stage == ProductStage.ASSETS_GENERATION.value:
-            data = product.data or {}
+            data = dict(product.data or {})
             content = data.get("content", {})
             sections = content.get("sections", []) if isinstance(content, dict) else []
             if not isinstance(sections, list) or not sections:
@@ -192,6 +176,7 @@ def run_stage(db: Session, product_id: UUID) -> StageActionResponse:
                 "source_sections": len(sections),
             }
             product.data = data
+            flag_modified(product, "data")
             product = save_stage_output(db, product, ProductStage.ASSETS_GENERATION.value, data["assets_generation"])
         elif product.stage == ProductStage.READY.value:
             raise StateTransitionError("READY stage cannot be run")
