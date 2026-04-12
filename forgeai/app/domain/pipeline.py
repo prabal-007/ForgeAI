@@ -9,6 +9,7 @@ class PipelineStage(str, Enum):
     DESIGN = "design"
     CONTENT = "content"
     COMPLIANCE = "compliance"
+    ASSETS_GENERATION = "assets_generation"
     READY = "ready"
 
 
@@ -24,6 +25,7 @@ PIPELINE_STAGE_ORDER = (
     PipelineStage.DESIGN.value,
     PipelineStage.CONTENT.value,
     PipelineStage.COMPLIANCE.value,
+    PipelineStage.ASSETS_GENERATION.value,
     PipelineStage.READY.value,
 )
 

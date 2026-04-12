@@ -11,7 +11,8 @@ NEXT_STAGE = {
     ProductStage.BRAND.value: ProductStage.DESIGN.value,
     ProductStage.DESIGN.value: ProductStage.CONTENT.value,
     ProductStage.CONTENT.value: ProductStage.COMPLIANCE.value,
-    ProductStage.COMPLIANCE.value: ProductStage.READY.value,
+    ProductStage.COMPLIANCE.value: ProductStage.ASSETS_GENERATION.value,
+    ProductStage.ASSETS_GENERATION.value: ProductStage.READY.value,
 }
 
 STAGE_DATA_KEY = {
@@ -20,6 +21,7 @@ STAGE_DATA_KEY = {
     ProductStage.DESIGN.value: "design",
     ProductStage.CONTENT.value: "content",
     ProductStage.COMPLIANCE.value: "compliance_output",
+    ProductStage.ASSETS_GENERATION.value: "assets_generation",
 }
 
 
@@ -85,6 +87,14 @@ def approve_current_stage(db: Session, product: Product) -> Product:
         decision = (product.data or {}).get("compliance_output", {}).get("decision")
         if decision != "pass":
             raise StateTransitionError("Cannot approve compliance stage without a pass decision")
+    if current_stage == ProductStage.ASSETS_GENERATION.value:
+        data = product.data or {}
+        cover = data.get("cover", {})
+        interior_pdf = data.get("interior_pdf")
+        if not isinstance(cover, dict) or not str(cover.get("image_url", "")).strip():
+            raise StateTransitionError("Cannot advance to READY without a valid cover.image_url")
+        if not isinstance(interior_pdf, str) or not interior_pdf.strip():
+            raise StateTransitionError("Cannot advance to READY without a generated interior_pdf")
 
     next_stage = NEXT_STAGE.get(current_stage)
     if not next_stage:
