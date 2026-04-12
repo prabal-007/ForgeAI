@@ -15,6 +15,8 @@ from app.db.base import Base
 class ProductStage(str, Enum):
     IDEA = "idea"
     BRAND = "brand"
+    DESIGN = "design"
+    CONTENT = "content"
     COMPLIANCE = "compliance"
     READY = "ready"
 
@@ -23,6 +25,20 @@ class ProductStatus(str, Enum):
     PENDING = "pending"
     APPROVED = "approved"
     REJECTED = "rejected"
+
+
+PIPELINE_STAGE_ORDER = (
+    ProductStage.IDEA.value,
+    ProductStage.BRAND.value,
+    ProductStage.DESIGN.value,
+    ProductStage.CONTENT.value,
+    ProductStage.COMPLIANCE.value,
+    ProductStage.READY.value,
+)
+
+
+def is_valid_stage(stage: str) -> bool:
+    return stage in PIPELINE_STAGE_ORDER
 
 
 class Product(Base):

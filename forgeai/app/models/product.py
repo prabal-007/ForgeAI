@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field
 class Stage(str, Enum):
     IDEA = "idea"
     BRAND = "brand"
+    DESIGN = "design"
+    CONTENT = "content"
     COMPLIANCE = "compliance"
     READY = "ready"
 
@@ -18,6 +20,20 @@ class StageStatus(str, Enum):
     PENDING = "pending"
     APPROVED = "approved"
     REJECTED = "rejected"
+
+
+PIPELINE_STAGE_ORDER = (
+    Stage.IDEA.value,
+    Stage.BRAND.value,
+    Stage.DESIGN.value,
+    Stage.CONTENT.value,
+    Stage.COMPLIANCE.value,
+    Stage.READY.value,
+)
+
+
+def is_valid_stage(stage: str) -> bool:
+    return stage in PIPELINE_STAGE_ORDER
 
 
 class ProductCreateRequest(BaseModel):

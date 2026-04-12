@@ -4,12 +4,22 @@ import uuid
 
 from sqlalchemy.orm import Session
 
-from app.db.models import Product, ProductHistory, ProductStage, ProductStatus
+from app.db.models import Product, ProductHistory, ProductStage, ProductStatus, is_valid_stage
 
 NEXT_STAGE = {
     ProductStage.IDEA.value: ProductStage.BRAND.value,
-    ProductStage.BRAND.value: ProductStage.COMPLIANCE.value,
+    ProductStage.BRAND.value: ProductStage.DESIGN.value,
+    ProductStage.DESIGN.value: ProductStage.CONTENT.value,
+    ProductStage.CONTENT.value: ProductStage.COMPLIANCE.value,
     ProductStage.COMPLIANCE.value: ProductStage.READY.value,
+}
+
+STAGE_DATA_KEY = {
+    ProductStage.IDEA.value: "idea_output",
+    ProductStage.BRAND.value: "brand_output",
+    ProductStage.DESIGN.value: "design",
+    ProductStage.CONTENT.value: "content",
+    ProductStage.COMPLIANCE.value: "compliance_output",
 }
 
 
@@ -59,7 +69,8 @@ def get_product(db: Session, product_id: uuid.UUID) -> Product:
 
 def save_stage_output(db: Session, product: Product, stage: str, output: dict) -> Product:
     data = dict(product.data or {})
-    data[f"{stage}_output"] = output
+    data_key = STAGE_DATA_KEY.get(stage, f"{stage}_output")
+    data[data_key] = output
     product.data = data
     _record_history(db, product, action="run_stage", from_stage=stage, to_stage=stage)
     db.commit()
@@ -106,7 +117,7 @@ def reject_current_stage(db: Session, product: Product, reason: str | None = Non
 
 
 def set_stage(db: Session, product: Product, new_stage: str, reason: str | None = None, action: str = "transition") -> Product:
-    if new_stage not in {s.value for s in ProductStage}:
+    if not is_valid_stage(new_stage):
         raise StateTransitionError(f"Invalid target stage '{new_stage}'")
 
     old_stage = product.stage
