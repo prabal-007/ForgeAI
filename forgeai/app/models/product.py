@@ -1,39 +1,20 @@
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-
-class Stage(str, Enum):
-    IDEA = "idea"
-    BRAND = "brand"
-    DESIGN = "design"
-    CONTENT = "content"
-    COMPLIANCE = "compliance"
-    READY = "ready"
-
-
-class StageStatus(str, Enum):
-    PENDING = "pending"
-    APPROVED = "approved"
-    REJECTED = "rejected"
-
-
-PIPELINE_STAGE_ORDER = (
-    Stage.IDEA.value,
-    Stage.BRAND.value,
-    Stage.DESIGN.value,
-    Stage.CONTENT.value,
-    Stage.COMPLIANCE.value,
-    Stage.READY.value,
+from app.domain.pipeline import (
+    PIPELINE_STAGE_ORDER,
+    PipelineStage,
+    PipelineStageStatus,
+    is_valid_stage,
 )
 
-
-def is_valid_stage(stage: str) -> bool:
-    return stage in PIPELINE_STAGE_ORDER
+# API schema aliases preserved for compatibility.
+Stage = PipelineStage
+StageStatus = PipelineStageStatus
 
 
 class ProductCreateRequest(BaseModel):

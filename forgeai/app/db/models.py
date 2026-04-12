@@ -2,43 +2,18 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from enum import Enum
-
 from sqlalchemy import DateTime, ForeignKey, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON, Uuid
 
 from app.db.base import Base
-
-
-class ProductStage(str, Enum):
-    IDEA = "idea"
-    BRAND = "brand"
-    DESIGN = "design"
-    CONTENT = "content"
-    COMPLIANCE = "compliance"
-    READY = "ready"
-
-
-class ProductStatus(str, Enum):
-    PENDING = "pending"
-    APPROVED = "approved"
-    REJECTED = "rejected"
-
-
-PIPELINE_STAGE_ORDER = (
-    ProductStage.IDEA.value,
-    ProductStage.BRAND.value,
-    ProductStage.DESIGN.value,
-    ProductStage.CONTENT.value,
-    ProductStage.COMPLIANCE.value,
-    ProductStage.READY.value,
+from app.domain.pipeline import (
+    PIPELINE_STAGE_ORDER,
+    PipelineStage as ProductStage,
+    PipelineStageStatus as ProductStatus,
+    is_valid_stage,
 )
-
-
-def is_valid_stage(stage: str) -> bool:
-    return stage in PIPELINE_STAGE_ORDER
 
 
 class Product(Base):
