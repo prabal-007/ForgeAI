@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 import os
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,8 @@ from urllib.request import urlopen
 from uuid import UUID, uuid4
 
 from openai import OpenAI
+
+logger = logging.getLogger(__name__)
 
 _client: OpenAI | None = None
 
@@ -46,8 +49,13 @@ def _pick_best_concept(best_design_concept: dict[str, Any] | None) -> dict[str, 
     return dict(best_design_concept)
 
 
-def _build_image_prompt(concept: dict[str, Any]) -> str:
-    """Compose a single image prompt from the chosen design concept."""
+def _build_image_prompt(
+    concept: dict[str, Any],
+    *,
+    niche: str | None = None,
+    brand_name: str | None = None,
+) -> str:
+    """Compose a single image prompt from the chosen design concept plus buyer signal (no on-image text)."""
     parts: list[str] = []
     prompt = concept.get("prompt")
     if isinstance(prompt, str) and prompt.strip():
@@ -60,12 +68,18 @@ def _build_image_prompt(concept: dict[str, Any]) -> str:
         parts.append(f"Layout: {layout.strip()}")
     if not parts:
         raise ValueError("Design concept has no usable prompt, style, or layout_notes for image generation")
+    signal: list[str] = []
+    if isinstance(niche, str) and niche.strip():
+        signal.append(f"Subject and audience mood must clearly evoke: {niche.strip()}.")
+    if isinstance(brand_name, str) and brand_name.strip():
+        signal.append(f"Brand personality (do not render as readable text): {brand_name.strip()}.")
     base = " ".join(parts)
+    niche_block = " " + " ".join(signal) if signal else ""
     suffix = (
-        " Professional KDP book cover, full bleed, high resolution, clean typography area, "
-        "no copyrighted characters or logos, original artwork."
+        " Professional KDP book cover, full bleed, high resolution, bold negative space at top for title overlay, "
+        "no copyrighted characters or logos, original artwork. Do not render small illegible text as fake titles."
     )
-    return f"{base}{suffix}"
+    return f"{base}{niche_block} {suffix}".strip()
 
 
 def _generate_image_bytes(prompt: str) -> tuple[bytes, str | None]:
@@ -120,19 +134,37 @@ def _upload_s3(image_bytes: bytes, bucket: str, key: str) -> str:
     return f"https://{bucket}.s3.amazonaws.com/{key}"
 
 
-def generate_cover(best_design_concept: dict[str, Any], product_id: UUID | str) -> dict[str, Any]:
+def generate_cover(
+    best_design_concept: dict[str, Any],
+    product_id: UUID | str,
+    *,
+    niche: str | None = None,
+    brand_name: str | None = None,
+    brand_tagline: str | None = None,
+) -> dict[str, Any]:
     """
     Generate a real cover image from the design concept via OpenAI Images API.
 
     Sets product.data['cover'] fields including image_url, prompt_used, and path (local) or S3 URL.
+    Optional text overlay (Pillow) adds readable title from brand/niche — see COVER_TEXT_OVERLAY.
     """
+    from app.services.cover_overlay import apply_cover_title_overlay, overlay_enabled
+
     concept = _pick_best_concept(best_design_concept)
     concept_id = concept.get("id") or concept.get("concept_id")
-    prompt_used = _build_image_prompt(concept)
+    prompt_used = _build_image_prompt(concept, niche=niche, brand_name=brand_name)
 
     image_bytes, revised = _generate_image_bytes(prompt_used)
     if not image_bytes:
         raise RuntimeError("Image generation returned empty payload")
+
+    overlay_title = (brand_name or "").strip() or (niche or "").strip() or "Journal"
+    overlay_sub = (brand_tagline or "").strip()
+    if overlay_enabled():
+        try:
+            image_bytes = apply_cover_title_overlay(image_bytes, overlay_title, overlay_sub)
+        except Exception as exc:
+            logger.warning("Cover text overlay skipped: %s", exc)
 
     # Normalize to PNG on disk for downstream export (OpenAI may return PNG bytes).
     storage_mode = os.getenv("COVER_STORAGE_MODE", "local").strip().lower()

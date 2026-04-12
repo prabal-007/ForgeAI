@@ -132,6 +132,8 @@ def generate_interior_pdf(sections: list[dict[str, Any]], output_name: str) -> s
     for section in sections:
         section_name = str(section.get("name") or "Untitled Section")
         section_purpose = str(section.get("purpose") or "")
+        fw = str(section.get("framework_usage") or "")
+        cycle = str(section.get("repeatable_cycle") or "")
         section_pages = _coerce_page_count(section.get("pages"), default=1)
 
         # Section header page (wrapped title + purpose within margins)
@@ -148,7 +150,7 @@ def generate_interior_pdf(sections: list[dict[str, Any]], output_name: str) -> s
         )
         y -= 8
         purpose_text = f"Purpose: {section_purpose}" if section_purpose.strip() else "Purpose: —"
-        _draw_wrapped_block(
+        y = _draw_wrapped_block(
             pdf,
             purpose_text,
             "Helvetica",
@@ -158,6 +160,30 @@ def generate_interior_pdf(sections: list[dict[str, Any]], output_name: str) -> s
             MAX_TEXT_WIDTH,
             line_gap=15,
         )
+        if fw.strip():
+            y -= 4
+            y = _draw_wrapped_block(
+                pdf,
+                f"How to use: {fw}",
+                "Helvetica",
+                11,
+                LEFT_MARGIN,
+                y,
+                MAX_TEXT_WIDTH,
+                line_gap=14,
+            )
+        if cycle.strip():
+            y -= 4
+            _draw_wrapped_block(
+                pdf,
+                f"Repeat: {cycle}",
+                "Helvetica",
+                11,
+                LEFT_MARGIN,
+                y,
+                MAX_TEXT_WIDTH,
+                line_gap=14,
+            )
         pdf.showPage()
 
         # Repeated journal template pages for each section

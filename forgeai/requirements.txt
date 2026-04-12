@@ -6,3 +6,4 @@ sqlalchemy
 psycopg[binary]
 reportlab
 boto3
+Pillow

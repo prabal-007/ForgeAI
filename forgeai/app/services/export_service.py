@@ -80,12 +80,16 @@ def _listing_payload(listing: Any) -> dict[str, Any]:
     if not isinstance(listing, dict):
         raise ValueError("Product has no listing data to export")
     out = {
+        "target_user": listing.get("target_user"),
+        "core_problem": listing.get("core_problem"),
+        "unique_value": listing.get("unique_value"),
         "title": listing.get("title"),
         "subtitle": listing.get("subtitle"),
         "description": listing.get("description"),
         "keywords": listing.get("keywords"),
     }
-    missing = [k for k, v in out.items() if v is None]
+    required_export = ("title", "subtitle", "description", "keywords")
+    missing = [k for k in required_export if out.get(k) is None]
     if missing:
         raise ValueError(f"Listing export missing required fields: {', '.join(missing)}")
     if not isinstance(out["keywords"], list) or not all(isinstance(x, str) for x in out["keywords"]):

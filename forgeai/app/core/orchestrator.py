@@ -13,6 +13,7 @@ from app.agents.design_agent import design_agent
 from app.agents.listing_agent import listing_agent
 from app.agents.trend_agent import trend_agent
 from app.db.models import Product, ProductStage, ProductStatus
+from app.domain.content_output import validate_content_output
 from app.domain.idea_output import niche_from_idea_output
 from app.domain.listing_output import validate_listing_output
 from app.models.product import ProductHistoryItem, ProductResponse, StageActionResponse
@@ -30,10 +31,22 @@ from app.services.pdf_generator import generate_interior_pdf
 
 
 def _regeneration_notes(product: Product) -> str | None:
-    failure_reasons = (product.data or {}).get("failure_reasons", [])
-    if not failure_reasons:
+    data = product.data or {}
+    failure_reasons = data.get("failure_reasons", [])
+    parts: list[str] = []
+    if isinstance(failure_reasons, list) and failure_reasons:
+        parts.append(f"Avoid previous issues: {', '.join(str(x) for x in failure_reasons if x)}")
+    fb = data.get("feedback")
+    if isinstance(fb, dict):
+        notes = (fb.get("human_notes") or "").strip()
+        if notes:
+            parts.append(f"Operator notes: {notes}")
+        rej = (fb.get("rejected_reason") or "").strip()
+        if rej:
+            parts.append(f"Rejection context: {rej}")
+    if not parts:
         return None
-    return f"Avoid previous issues: {', '.join(failure_reasons)}"
+    return "\n".join(parts)
 
 
 def _to_response(product: Product) -> ProductResponse:
@@ -98,7 +111,15 @@ def run_stage(db: Session, product_id: UUID) -> StageActionResponse:
             product = save_stage_output(db, product, ProductStage.DESIGN.value, output)
 
             data = dict(product.data or {})
-            cover_artifact = generate_cover(best_design_concept=output, product_id=product.id)
+            bn = brand_output.get("name") if isinstance(brand_output, dict) else None
+            bt = brand_output.get("tagline") if isinstance(brand_output, dict) else None
+            cover_artifact = generate_cover(
+                best_design_concept=output,
+                product_id=product.id,
+                niche=niche,
+                brand_name=bn if isinstance(bn, str) else None,
+                brand_tagline=bt if isinstance(bt, str) else None,
+            )
             data["cover"] = cover_artifact
             product.data = data
             flag_modified(product, "data")
@@ -114,6 +135,10 @@ def run_stage(db: Session, product_id: UUID) -> StageActionResponse:
                 brand_tone = "clear, practical, supportive"
 
             output = content_agent(niche=niche, brand_tone=brand_tone, regeneration_notes=notes)
+            try:
+                validate_content_output(output)
+            except ValueError as exc:
+                raise StateTransitionError(str(exc)) from exc
             product = save_stage_output(db, product, ProductStage.CONTENT.value, output)
         elif product.stage == ProductStage.COMPLIANCE.value:
             payload = {
@@ -156,7 +181,10 @@ def run_stage(db: Session, product_id: UUID) -> StageActionResponse:
                 evaluation_positioning=evaluation_positioning,
                 regeneration_notes=notes,
             )
-            validate_listing_output(output)
+            try:
+                validate_listing_output(output)
+            except ValueError as exc:
+                raise StateTransitionError(str(exc)) from exc
             product = save_stage_output(db, product, ProductStage.LISTING.value, output)
         elif product.stage == ProductStage.ASSETS_GENERATION.value:
             data = dict(product.data or {})
@@ -201,10 +229,10 @@ def approve_stage(db: Session, product_id: UUID) -> StageActionResponse:
         raise
 
 
-def reject_stage(db: Session, product_id: UUID, reason: str | None = None) -> StageActionResponse:
+def reject_stage(db: Session, product_id: UUID, reason: str | None = None, human_notes: str | None = None) -> StageActionResponse:
     try:
         product = get_product(db, product_id)
-        product = reject_current_stage(db, product, reason=reason)
+        product = reject_current_stage(db, product, reason=reason, human_notes=human_notes)
         product = _commit_and_refresh(db, product)
         return StageActionResponse(product=_to_response(product), message=f"Stage '{product.stage}' rejected.")
     except Exception:

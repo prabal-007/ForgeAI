@@ -39,5 +39,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-#python generated files
+# generated files
 __pycache__/
+generated_*

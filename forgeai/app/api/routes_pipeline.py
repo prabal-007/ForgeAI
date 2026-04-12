@@ -46,7 +46,7 @@ def reject_stage_route(
     db: Session = Depends(get_db),
 ) -> StageActionResponse:
     try:
-        return reject_stage(db, product_id, request.reason)
+        return reject_stage(db, product_id, request.reason, request.human_notes)
     except StateTransitionError as exc:
         _handle_transition_error(exc)
 

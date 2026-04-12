@@ -23,6 +23,10 @@ class ProductCreateRequest(BaseModel):
 
 class ProductTransitionRequest(BaseModel):
     reason: str | None = None
+    human_notes: str | None = Field(
+        default=None,
+        description="Optional operator notes; stored on product.data['feedback'] and fed into regeneration.",
+    )
 
 
 class ProductHistoryItem(BaseModel):

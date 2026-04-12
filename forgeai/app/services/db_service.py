@@ -125,15 +125,25 @@ def approve_current_stage(db: Session, product: Product) -> Product:
     return product
 
 
-def reject_current_stage(db: Session, product: Product, reason: str | None = None) -> Product:
+def reject_current_stage(db: Session, product: Product, reason: str | None = None, human_notes: str | None = None) -> Product:
     product.status = ProductStatus.REJECTED.value
     data = dict(product.data or {})
     if reason:
         failure_reasons = list(data.get("failure_reasons", []))
         failure_reasons.append(reason)
         data["failure_reasons"] = failure_reasons
-        product.data = data
-        flag_modified(product, "data")
+
+    feedback_entry = {
+        "rejected_reason": reason or "",
+        "human_notes": (human_notes or "").strip(),
+        "stage": product.stage,
+    }
+    data["feedback"] = feedback_entry
+    history = list(data.get("feedback_history", []))
+    history.append(feedback_entry)
+    data["feedback_history"] = history
+    product.data = data
+    flag_modified(product, "data")
 
     _record_history(db, product, action="reject", from_stage=product.stage, to_stage=product.stage, reason=reason)
     db.flush()
