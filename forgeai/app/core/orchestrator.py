@@ -149,27 +149,22 @@ def run_stage(db: Session, product_id: UUID) -> StageActionResponse:
         elif product.stage == ProductStage.EVALUATION.value:
             raise StateTransitionError("EVALUATION stage is review-only; approve or reject it without running")
         elif product.stage == ProductStage.LISTING.value:
-            evaluation_output = (product.data or {}).get("evaluation", {})
-            if not evaluation_output and isinstance((product.data or {}).get("evaluation_output"), dict):
-                evaluation_output = (product.data or {}).get("evaluation_output", {})
+            data = product.data or {}
+            evaluation_output = data.get("evaluation") or data.get("evaluation_output")
+            if not isinstance(evaluation_output, dict):
+                evaluation_output = {}
 
-            idea_output = (product.data or {}).get("idea_output", {})
-            niche = idea_output.get("niche") if isinstance(idea_output, dict) else None
-            if not niche:
-                niche = (product.data or {}).get("brief", "general niche")
+            idea_output = data.get("idea_output") or {}
+            niche = idea_output.get("niche") or data.get("brief") or "general niche"
 
-            brand_output = (product.data or {}).get("brand_output", {})
-            brand = brand_output.get("name") if isinstance(brand_output, dict) else None
-            if not brand:
-                brand = "Original brand"
+            brand_output = data.get("brand_output") or {}
+            brand = brand_output.get("name") or "Original brand"
 
-            evaluation_positioning = {}
-            if isinstance(evaluation_output, dict):
-                evaluation_positioning = {
-                    "why_it_will_sell": evaluation_output.get("why_it_will_sell", ""),
-                    "target_customer": evaluation_output.get("target_customer", ""),
-                    "use_case": evaluation_output.get("use_case", ""),
-                }
+            evaluation_positioning = {
+                "why_it_will_sell": evaluation_output.get("why_it_will_sell", ""),
+                "target_customer": evaluation_output.get("target_customer", ""),
+                "use_case": evaluation_output.get("use_case", ""),
+            }
 
             output = listing_agent(
                 niche=niche,
