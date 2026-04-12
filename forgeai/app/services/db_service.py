@@ -55,8 +55,7 @@ def create_product(db: Session, brief: str) -> Product:
     db.add(product)
     db.flush()
     _record_history(db, product, action="create", from_stage=None, to_stage=product.stage)
-    db.commit()
-    db.refresh(product)
+    db.flush()
     return product
 
 
@@ -73,8 +72,7 @@ def save_stage_output(db: Session, product: Product, stage: str, output: dict) -
     data[data_key] = output
     product.data = data
     _record_history(db, product, action="run_stage", from_stage=stage, to_stage=stage)
-    db.commit()
-    db.refresh(product)
+    db.flush()
     return product
 
 
@@ -96,8 +94,7 @@ def approve_current_stage(db: Session, product: Product) -> Product:
     product.stage = next_stage
 
     _record_history(db, product, action="approve", from_stage=current_stage, to_stage=next_stage)
-    db.commit()
-    db.refresh(product)
+    db.flush()
     return product
 
 
@@ -111,8 +108,7 @@ def reject_current_stage(db: Session, product: Product, reason: str | None = Non
         product.data = data
 
     _record_history(db, product, action="reject", from_stage=product.stage, to_stage=product.stage, reason=reason)
-    db.commit()
-    db.refresh(product)
+    db.flush()
     return product
 
 
@@ -127,6 +123,5 @@ def set_stage(db: Session, product: Product, new_stage: str, reason: str | None 
     product.stage = new_stage
     product.status = ProductStatus.PENDING.value
     _record_history(db, product, action=action, from_stage=old_stage, to_stage=new_stage, reason=reason)
-    db.commit()
-    db.refresh(product)
+    db.flush()
     return product

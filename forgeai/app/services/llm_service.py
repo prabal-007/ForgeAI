@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 
 from openai import OpenAI
 
+logger = logging.getLogger(__name__)
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+
+class LLMResponseError(ValueError):
+    pass
 
 
 def run_prompt(prompt: str) -> dict:
@@ -21,5 +27,6 @@ def run_prompt(prompt: str) -> dict:
     content = response.choices[0].message.content or "{}"
     try:
         return json.loads(content)
-    except json.JSONDecodeError:
-        return {}
+    except json.JSONDecodeError as exc:
+        logger.error("Invalid JSON from LLM response: %s", content)
+        raise LLMResponseError("LLM returned invalid JSON") from exc

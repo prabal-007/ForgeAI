@@ -49,103 +49,135 @@ def _to_response(product: Product) -> ProductResponse:
     )
 
 
+def _commit_and_refresh(db: Session, product: Product) -> Product:
+    db.commit()
+    db.refresh(product)
+    return product
+
+
 def create_pipeline_product(db: Session, brief: str) -> StageActionResponse:
-    product = create_product(db, brief)
-    return StageActionResponse(product=_to_response(product), message="Product created at IDEA stage.")
+    try:
+        product = create_product(db, brief)
+        product = _commit_and_refresh(db, product)
+        return StageActionResponse(product=_to_response(product), message="Product created at IDEA stage.")
+    except Exception:
+        db.rollback()
+        raise
 
 
 def run_stage(db: Session, product_id: UUID) -> StageActionResponse:
     # Strict stage handling follows the persisted pipeline order in db models (conflict-safe).
-    product = get_product(db, product_id)
-    if product.status == ProductStatus.REJECTED.value and product.stage != ProductStage.COMPLIANCE.value:
-        raise StateTransitionError("Rejected stage must be regenerated before running again")
+    try:
+        product = get_product(db, product_id)
+        if product.status == ProductStatus.REJECTED.value and product.stage != ProductStage.COMPLIANCE.value:
+            raise StateTransitionError("Rejected stage must be regenerated before running again")
 
-    notes = _regeneration_notes(product)
+        notes = _regeneration_notes(product)
 
-    if product.stage == ProductStage.IDEA.value:
-        brief = (product.data or {}).get("brief", "")
-        output = trend_agent(brief=brief, regeneration_notes=notes)
-        product = save_stage_output(db, product, ProductStage.IDEA.value, output)
-    elif product.stage == ProductStage.BRAND.value:
-        idea_output = (product.data or {}).get("idea_output", {})
-        output = brand_agent(idea_json=idea_output, regeneration_notes=notes)
-        product = save_stage_output(db, product, ProductStage.BRAND.value, output)
-    elif product.stage == ProductStage.DESIGN.value:
-        brand_output = (product.data or {}).get("brand_output", {})
-        idea_output = (product.data or {}).get("idea_output", {})
-        niche = idea_output.get("niche") if isinstance(idea_output, dict) else None
-        if not niche:
-            niche = (product.data or {}).get("brief", "general niche")
-        output = design_agent(brand_identity=brand_output, niche=niche, regeneration_notes=notes)
-        product = save_stage_output(db, product, ProductStage.DESIGN.value, output)
-    elif product.stage == ProductStage.CONTENT.value:
-        idea_output = (product.data or {}).get("idea_output", {})
-        niche = idea_output.get("niche") if isinstance(idea_output, dict) else None
-        if not niche:
-            niche = (product.data or {}).get("brief", "general niche")
+        if product.stage == ProductStage.IDEA.value:
+            brief = (product.data or {}).get("brief", "")
+            output = trend_agent(brief=brief, regeneration_notes=notes)
+            product = save_stage_output(db, product, ProductStage.IDEA.value, output)
+        elif product.stage == ProductStage.BRAND.value:
+            idea_output = (product.data or {}).get("idea_output", {})
+            output = brand_agent(idea_json=idea_output, regeneration_notes=notes)
+            product = save_stage_output(db, product, ProductStage.BRAND.value, output)
+        elif product.stage == ProductStage.DESIGN.value:
+            brand_output = (product.data or {}).get("brand_output", {})
+            idea_output = (product.data or {}).get("idea_output", {})
+            niche = idea_output.get("niche") if isinstance(idea_output, dict) else None
+            if not niche:
+                niche = (product.data or {}).get("brief", "general niche")
+            output = design_agent(brand_identity=brand_output, niche=niche, regeneration_notes=notes)
+            product = save_stage_output(db, product, ProductStage.DESIGN.value, output)
+        elif product.stage == ProductStage.CONTENT.value:
+            idea_output = (product.data or {}).get("idea_output", {})
+            niche = idea_output.get("niche") if isinstance(idea_output, dict) else None
+            if not niche:
+                niche = (product.data or {}).get("brief", "general niche")
 
-        brand_output = (product.data or {}).get("brand_output", {})
-        brand_tone = brand_output.get("tone") if isinstance(brand_output, dict) else None
-        if not brand_tone:
-            brand_tone = "clear, practical, supportive"
+            brand_output = (product.data or {}).get("brand_output", {})
+            brand_tone = brand_output.get("tone") if isinstance(brand_output, dict) else None
+            if not brand_tone:
+                brand_tone = "clear, practical, supportive"
 
-        output = content_agent(niche=niche, brand_tone=brand_tone, regeneration_notes=notes)
-        product = save_stage_output(db, product, ProductStage.CONTENT.value, output)
-    elif product.stage == ProductStage.COMPLIANCE.value:
-        payload = {
-            "idea": (product.data or {}).get("idea_output", {}),
-            "brand": (product.data or {}).get("brand_output", {}),
-            "design": (product.data or {}).get("design", {}),
-            "content": (product.data or {}).get("content", {}),
-        }
-        output = compliance_agent(payload)
-        product = save_stage_output(db, product, ProductStage.COMPLIANCE.value, output)
-        if output.get("decision") == "fail":
-            issue_reasons = [item.get("reason", "") for item in output.get("issues", []) if isinstance(item, dict)]
-            reason = "; ".join([r for r in issue_reasons if r]) or "Compliance failed"
-            product = reject_current_stage(db, product, reason=reason)
-            return StageActionResponse(product=_to_response(product), message="Compliance failed. Product rejected.")
-    elif product.stage == ProductStage.READY.value:
-        raise StateTransitionError("READY stage cannot be run")
-    else:
-        raise StateTransitionError(f"Unknown stage '{product.stage}'")
+            output = content_agent(niche=niche, brand_tone=brand_tone, regeneration_notes=notes)
+            product = save_stage_output(db, product, ProductStage.CONTENT.value, output)
+        elif product.stage == ProductStage.COMPLIANCE.value:
+            payload = {
+                "idea": (product.data or {}).get("idea_output", {}),
+                "brand": (product.data or {}).get("brand_output", {}),
+                "design": (product.data or {}).get("design", {}),
+                "content": (product.data or {}).get("content", {}),
+            }
+            output = compliance_agent(payload)
+            product = save_stage_output(db, product, ProductStage.COMPLIANCE.value, output)
+            if output.get("decision") == "fail":
+                issue_reasons = [item.get("reason", "") for item in output.get("issues", []) if isinstance(item, dict)]
+                reason = "; ".join([r for r in issue_reasons if r]) or "Compliance failed"
+                product = reject_current_stage(db, product, reason=reason)
+                product = _commit_and_refresh(db, product)
+                return StageActionResponse(product=_to_response(product), message="Compliance failed. Product rejected.")
+        elif product.stage == ProductStage.READY.value:
+            raise StateTransitionError("READY stage cannot be run")
+        else:
+            raise StateTransitionError(f"Unknown stage '{product.stage}'")
 
-    return StageActionResponse(product=_to_response(product), message=f"Stage '{product.stage}' executed.")
+        product = _commit_and_refresh(db, product)
+        return StageActionResponse(product=_to_response(product), message=f"Stage '{product.stage}' executed.")
+    except Exception:
+        db.rollback()
+        raise
 
 
 def approve_stage(db: Session, product_id: UUID) -> StageActionResponse:
-    product = get_product(db, product_id)
-    product = approve_current_stage(db, product)
-    return StageActionResponse(product=_to_response(product), message=f"Advanced to '{product.stage}' stage.")
+    try:
+        product = get_product(db, product_id)
+        product = approve_current_stage(db, product)
+        product = _commit_and_refresh(db, product)
+        return StageActionResponse(product=_to_response(product), message=f"Advanced to '{product.stage}' stage.")
+    except Exception:
+        db.rollback()
+        raise
 
 
 def reject_stage(db: Session, product_id: UUID, reason: str | None = None) -> StageActionResponse:
-    product = get_product(db, product_id)
-    product = reject_current_stage(db, product, reason=reason)
-    return StageActionResponse(product=_to_response(product), message=f"Stage '{product.stage}' rejected.")
+    try:
+        product = get_product(db, product_id)
+        product = reject_current_stage(db, product, reason=reason)
+        product = _commit_and_refresh(db, product)
+        return StageActionResponse(product=_to_response(product), message=f"Stage '{product.stage}' rejected.")
+    except Exception:
+        db.rollback()
+        raise
 
 
 def regenerate_stage(db: Session, product_id: UUID) -> StageActionResponse:
-    product = get_product(db, product_id)
-    if product.status != ProductStatus.REJECTED.value:
-        raise StateTransitionError("Only rejected products can be regenerated")
+    try:
+        product = get_product(db, product_id)
+        if product.status != ProductStatus.REJECTED.value:
+            raise StateTransitionError("Only rejected products can be regenerated")
 
-    # When compliance fails, iterate by regenerating content using failure reasons.
-    if product.stage == ProductStage.COMPLIANCE.value:
-        product = set_stage(
-            db,
-            product,
-            new_stage=ProductStage.CONTENT.value,
-            reason="Compliance failure triggered content regeneration",
-            action="regenerate",
-        )
-    else:
-        product = set_stage(
-            db,
-            product,
-            new_stage=product.stage,
-            reason="Manual regeneration",
-            action="regenerate",
-        )
+        # When compliance fails, iterate by regenerating content using failure reasons.
+        if product.stage == ProductStage.COMPLIANCE.value:
+            product = set_stage(
+                db,
+                product,
+                new_stage=ProductStage.CONTENT.value,
+                reason="Compliance failure triggered content regeneration",
+                action="regenerate",
+            )
+        else:
+            product = set_stage(
+                db,
+                product,
+                new_stage=product.stage,
+                reason="Manual regeneration",
+                action="regenerate",
+            )
 
-    return run_stage(db, product.id)
+        product = _commit_and_refresh(db, product)
+        return run_stage(db, product.id)
+    except Exception:
+        db.rollback()
+        raise

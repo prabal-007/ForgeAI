@@ -104,3 +104,8 @@ If guardrails fail, compliance rejects the product and stores failure reasons.
 pip install -r requirements.txt
 ./run.sh
 ```
+
+
+## Transaction handling
+
+DB commits are coordinated in orchestrator actions so stage runs and history writes remain atomic per API operation.
