@@ -17,7 +17,10 @@ def _handle_transition_error(exc: StateTransitionError) -> None:
 
 @router.post("/products", response_model=StageActionResponse)
 def create_product_route(request: ProductCreateRequest, db: Session = Depends(get_db)) -> StageActionResponse:
-    return create_pipeline_product(db, request.brief)
+    try:
+        return create_pipeline_product(db, request.brief)
+    except StateTransitionError as exc:
+        _handle_transition_error(exc)
 
 
 @router.post("/{product_id}/run", response_model=StageActionResponse)
