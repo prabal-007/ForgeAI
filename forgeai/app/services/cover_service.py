@@ -134,6 +134,26 @@ def _upload_s3(image_bytes: bytes, bucket: str, key: str) -> str:
     return f"https://{bucket}.s3.amazonaws.com/{key}"
 
 
+def _generate_programmatic_cover(
+    *,
+    niche: str | None,
+    brand_name: str | None,
+    brand_tagline: str | None,
+    color_palette: list[str] | None,
+    title: str | None,
+    subtitle: str | None,
+) -> bytes:
+    from app.services.cover_generator import generate_programmatic_cover
+    return generate_programmatic_cover(
+        title=title or brand_name or niche or "Journal",
+        subtitle=subtitle or brand_tagline or "",
+        brand_name=brand_name or "",
+        tagline=brand_tagline or "",
+        color_palette=color_palette or [],
+        niche=niche or "",
+    )
+
+
 def generate_cover(
     best_design_concept: dict[str, Any],
     product_id: UUID | str,
@@ -141,34 +161,60 @@ def generate_cover(
     niche: str | None = None,
     brand_name: str | None = None,
     brand_tagline: str | None = None,
+    color_palette: list[str] | None = None,
+    listing_title: str | None = None,
+    listing_subtitle: str | None = None,
 ) -> dict[str, Any]:
     """
-    Generate a real cover image from the design concept via OpenAI Images API.
+    Generate a cover PNG and return a cover artifact dict.
 
-    Sets product.data['cover'] fields including image_url, prompt_used, and path (local) or S3 URL.
-    Optional text overlay (Pillow) adds readable title from brand/niche — see COVER_TEXT_OVERLAY.
+    COVER_MODE=programmatic (default):
+        Pure Pillow typographic cover — reliable text, zero API cost.
+        Uses listing_title if available, else brand_name / niche.
+
+    COVER_MODE=ai:
+        DALL-E / image model cover (opt-in). Costs tokens. Text overlay applied.
     """
-    from app.services.cover_overlay import apply_cover_title_overlay, overlay_enabled
+    from app.services.cover_generator import cover_mode
 
-    concept = _pick_best_concept(best_design_concept)
-    concept_id = concept.get("id") or concept.get("concept_id")
-    prompt_used = _build_image_prompt(concept, niche=niche, brand_name=brand_name)
-
-    image_bytes, revised = _generate_image_bytes(prompt_used)
-    if not image_bytes:
-        raise RuntimeError("Image generation returned empty payload")
-
-    overlay_title = (brand_name or "").strip() or (niche or "").strip() or "Journal"
-    overlay_sub = (brand_tagline or "").strip()
-    if overlay_enabled():
-        try:
-            image_bytes = apply_cover_title_overlay(image_bytes, overlay_title, overlay_sub)
-        except Exception as exc:
-            logger.warning("Cover text overlay skipped: %s", exc)
-
-    # Normalize to PNG on disk for downstream export (OpenAI may return PNG bytes).
     storage_mode = os.getenv("COVER_STORAGE_MODE", "local").strip().lower()
-    record_prompt = revised.strip() if isinstance(revised, str) and revised.strip() else prompt_used
+
+    if cover_mode() == "ai":
+        from app.services.cover_overlay import apply_cover_title_overlay, overlay_enabled
+
+        concept    = _pick_best_concept(best_design_concept)
+        concept_id = concept.get("id") or concept.get("concept_id")
+        prompt_used = _build_image_prompt(concept, niche=niche, brand_name=brand_name)
+
+        image_bytes, revised = _generate_image_bytes(prompt_used)
+        if not image_bytes:
+            raise RuntimeError("Image generation returned empty payload")
+
+        overlay_title = (listing_title or brand_name or niche or "Journal").strip()
+        overlay_sub   = (listing_subtitle or brand_tagline or "").strip()
+        if overlay_enabled():
+            try:
+                image_bytes = apply_cover_title_overlay(image_bytes, overlay_title, overlay_sub)
+            except Exception as exc:
+                logger.warning("Cover text overlay skipped: %s", exc)
+
+        record_prompt = (revised or "").strip() or prompt_used
+        method = "ai"
+    else:
+        # Programmatic: use final listing title for cover when available
+        cover_title    = (listing_title or brand_name or niche or "Journal").strip()
+        cover_subtitle = (listing_subtitle or brand_tagline or "").strip()
+        image_bytes    = _generate_programmatic_cover(
+            niche=niche,
+            brand_name=brand_name,
+            brand_tagline=brand_tagline,
+            color_palette=color_palette,
+            title=cover_title,
+            subtitle=cover_subtitle,
+        )
+        record_prompt = f"programmatic:{cover_title}"
+        concept_id    = None
+        method        = "programmatic"
 
     if storage_mode == "s3":
         bucket = os.getenv("COVER_S3_BUCKET", "").strip()
@@ -181,8 +227,9 @@ def generate_cover(
             "prompt_used": record_prompt,
             "storage": "s3",
             "path": key,
-            "concept_id": concept_id,
+            "concept_id": concept_id if cover_mode() == "ai" else None,
             "bytes_length": len(image_bytes),
+            "method": method,
         }
 
     image_url, local_path = _store_locally(image_bytes=image_bytes, product_id=product_id)
@@ -191,8 +238,9 @@ def generate_cover(
         "prompt_used": record_prompt,
         "storage": "local",
         "path": local_path,
-        "concept_id": concept_id,
+        "concept_id": concept_id if cover_mode() == "ai" else None,
         "bytes_length": len(image_bytes),
+        "method": method,
     }
 
 

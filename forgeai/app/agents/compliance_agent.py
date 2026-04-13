@@ -38,7 +38,6 @@ CONTENT_BANNED_CUES = {
     "movie scene",
     "cinematic",
     "franchise",
-    "lined pages",
     "blank lined",
 }
 
@@ -87,7 +86,13 @@ def _collect_content_issues(content_payload: dict) -> list[dict]:
                 str(section.get("name", "")),
                 str(section.get("pages", "")),
                 str(section.get("purpose", "")),
+                str(section.get("instructions", "")),
+                str(section.get("example_entry", "")),
+                str(section.get("type", "")),
             ]
+        ).lower()
+        name_purpose = " ".join(
+            [str(section.get("name", "")), str(section.get("purpose", ""))]
         ).lower()
         for cue in CONTENT_BANNED_CUES:
             if re.search(rf"\b{re.escape(cue)}\b", merged):
@@ -98,6 +103,13 @@ def _collect_content_issues(content_payload: dict) -> list[dict]:
                     }
                 )
                 break
+        if "lined pages" in name_purpose:
+            issues.append(
+                {
+                    "type": "content",
+                    "reason": f"Section {index} markets or centers on generic lined pages (name/purpose).",
+                }
+            )
     return issues
 
 

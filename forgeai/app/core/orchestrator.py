@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from uuid import UUID
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
@@ -14,9 +17,12 @@ from app.agents.listing_agent import listing_agent
 from app.agents.trend_agent import trend_agent
 from app.db.models import Product, ProductStage, ProductStatus
 from app.domain.content_output import validate_content_output
+from app.domain.design_output import validate_design_output
+from app.domain.design_positioning import design_context_from_idea
 from app.domain.idea_output import niche_from_idea_output
 from app.domain.listing_output import validate_listing_output
 from app.models.product import ProductHistoryItem, ProductResponse, StageActionResponse
+from app.services.cover_overlay import overlay_enabled, reapply_overlay_from_listing
 from app.services.cover_service import generate_cover
 from app.services.db_service import (
     StateTransitionError,
@@ -107,18 +113,37 @@ def run_stage(db: Session, product_id: UUID) -> StageActionResponse:
             idea_output = (product.data or {}).get("idea_output", {})
             data_brief = (product.data or {}).get("brief", "general niche")
             niche = niche_from_idea_output(idea_output, str(data_brief))
-            output = design_agent(brand_identity=brand_output, niche=niche, regeneration_notes=notes)
+            pos_user, pos_problem = design_context_from_idea(product.data or {})
+            output = design_agent(
+                brand_identity=brand_output,
+                niche=niche,
+                regeneration_notes=notes,
+                target_user=pos_user,
+                core_problem=pos_problem,
+            )
+            try:
+                validate_design_output(
+                    output,
+                    niche=niche,
+                    target_user=pos_user,
+                    core_problem=pos_problem,
+                )
+            except ValueError as exc:
+                raise StateTransitionError(str(exc)) from exc
             product = save_stage_output(db, product, ProductStage.DESIGN.value, output)
 
             data = dict(product.data or {})
-            bn = brand_output.get("name") if isinstance(brand_output, dict) else None
-            bt = brand_output.get("tagline") if isinstance(brand_output, dict) else None
+            bn      = brand_output.get("name")        if isinstance(brand_output, dict) else None
+            bt      = brand_output.get("tagline")     if isinstance(brand_output, dict) else None
+            cp_raw  = brand_output.get("color_palette") if isinstance(brand_output, dict) else None
+            palette = [str(c) for c in cp_raw if isinstance(c, str)] if isinstance(cp_raw, list) else []
             cover_artifact = generate_cover(
                 best_design_concept=output,
                 product_id=product.id,
                 niche=niche,
                 brand_name=bn if isinstance(bn, str) else None,
                 brand_tagline=bt if isinstance(bt, str) else None,
+                color_palette=palette or None,
             )
             data["cover"] = cover_artifact
             product.data = data
@@ -192,10 +217,42 @@ def run_stage(db: Session, product_id: UUID) -> StageActionResponse:
             sections = content.get("sections", []) if isinstance(content, dict) else []
             if not isinstance(sections, list) or not sections:
                 raise StateTransitionError("Cannot generate assets without content.sections")
+            if not isinstance(content, dict):
+                content = {"sections": sections}
 
-            interior_pdf = generate_interior_pdf(sections=sections, output_name=f"product-{product.id}")
+            interior_pdf = generate_interior_pdf(content=content, output_name=f"product-{product.id}")
             if not Path(interior_pdf).is_file() or Path(interior_pdf).stat().st_size <= 0:
                 raise StateTransitionError("Interior PDF generation failed")
+
+            # Refresh cover with final listing title (programmatic: regenerate; AI: re-overlay)
+            listing = data.get("listing") or {}
+            listing_title    = str(listing.get("title") or "").strip()
+            listing_subtitle = str(listing.get("subtitle") or "").strip()
+            cover = data.get("cover") or {}
+            cover_path = str(cover.get("path") or "")
+            if listing_title and cover_path and Path(cover_path).is_file():
+                try:
+                    from app.services.cover_generator import cover_mode, generate_programmatic_cover
+                    if cover_mode() == "programmatic":
+                        brand_output_a = data.get("brand_output") or {}
+                        idea_output_a  = data.get("idea_output") or {}
+                        niche_a        = niche_from_idea_output(idea_output_a, str(data.get("brief") or ""))
+                        cp_raw_a       = brand_output_a.get("color_palette") if isinstance(brand_output_a, dict) else None
+                        palette_a      = [str(c) for c in cp_raw_a if isinstance(c, str)] if isinstance(cp_raw_a, list) else []
+                        new_bytes = generate_programmatic_cover(
+                            title=listing_title,
+                            subtitle=listing_subtitle,
+                            brand_name=str(brand_output_a.get("name") or ""),
+                            tagline=str(brand_output_a.get("tagline") or ""),
+                            color_palette=palette_a,
+                            niche=niche_a,
+                        )
+                    else:
+                        new_bytes = reapply_overlay_from_listing(cover_path, listing_title, listing_subtitle)
+                    Path(cover_path).write_bytes(new_bytes)
+                    data["cover"] = {**cover, "overlay_title": listing_title, "cover_updated": True}
+                except Exception as _cover_err:
+                    logger.warning("Cover title refresh skipped at assets stage: %s", _cover_err)
 
             data["interior_pdf"] = interior_pdf
             data["assets_generation"] = {
@@ -213,6 +270,75 @@ def run_stage(db: Session, product_id: UUID) -> StageActionResponse:
 
         product = _commit_and_refresh(db, product)
         return StageActionResponse(product=_to_response(product), message=f"Stage '{product.stage}' executed.")
+    except Exception:
+        db.rollback()
+        raise
+
+
+def regenerate_cover(db: Session, product_id: UUID) -> StageActionResponse:
+    """
+    Generate (or re-generate) cover for any product that already has brand + idea data.
+
+    Safe to call at any stage — does not change stage or status.
+    Use when design was approved without running, or when the cover needs refreshing.
+    """
+    try:
+        product = get_product(db, product_id)
+        data = dict(product.data or {})
+
+        brand_output = data.get("brand_output") or {}
+        idea_output  = data.get("idea_output") or {}
+        data_brief   = str(data.get("brief") or "general niche")
+        niche        = niche_from_idea_output(idea_output, data_brief)
+        pos_user, pos_problem = design_context_from_idea(data)
+
+        design_output = data.get("design")
+        if not isinstance(design_output, dict) or not design_output.get("concepts"):
+            # Design concepts never generated — run design agent first
+            notes = _regeneration_notes(product)
+            design_output = design_agent(
+                brand_identity=brand_output,
+                niche=niche,
+                regeneration_notes=notes,
+                target_user=pos_user,
+                core_problem=pos_problem,
+            )
+            try:
+                validate_design_output(
+                    design_output,
+                    niche=niche,
+                    target_user=pos_user,
+                    core_problem=pos_problem,
+                )
+            except ValueError as exc:
+                raise StateTransitionError(str(exc)) from exc
+            data["design"] = design_output
+
+        bn      = brand_output.get("name")        if isinstance(brand_output, dict) else None
+        bt      = brand_output.get("tagline")     if isinstance(brand_output, dict) else None
+        cp_raw  = brand_output.get("color_palette") if isinstance(brand_output, dict) else None
+        palette = [str(c) for c in cp_raw if isinstance(c, str)] if isinstance(cp_raw, list) else []
+        listing = data.get("listing") or {}
+        lt      = str(listing.get("title") or "").strip() or None
+        ls      = str(listing.get("subtitle") or "").strip() or None
+        cover_artifact = generate_cover(
+            best_design_concept=design_output,
+            product_id=product.id,
+            niche=niche,
+            brand_name=bn if isinstance(bn, str) else None,
+            brand_tagline=bt if isinstance(bt, str) else None,
+            color_palette=palette or None,
+            listing_title=lt,
+            listing_subtitle=ls,
+        )
+        data["cover"] = cover_artifact
+        product.data = data
+        flag_modified(product, "data")
+        product = _commit_and_refresh(db, product)
+        return StageActionResponse(
+            product=_to_response(product),
+            message=f"Cover regenerated ({cover_artifact.get('method', 'programmatic')}). image_url: {cover_artifact.get('image_url')}",
+        )
     except Exception:
         db.rollback()
         raise

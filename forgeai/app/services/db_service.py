@@ -90,6 +90,17 @@ def approve_current_stage(db: Session, product: Product) -> Product:
     if current_stage == ProductStage.READY.value:
         raise StateTransitionError("READY stage cannot be approved further")
 
+    if current_stage == ProductStage.DESIGN.value:
+        design = (product.data or {}).get("design")
+        cover  = (product.data or {}).get("cover")
+        if not isinstance(design, dict):
+            raise StateTransitionError(
+                "Design stage has not been run yet — POST /pipeline/{product_id}/run first to generate concepts and cover."
+            )
+        if not isinstance(cover, dict) or not str(cover.get("image_url", "")).strip():
+            raise StateTransitionError(
+                "Design stage ran but no cover was generated — POST /pipeline/{product_id}/run again, or POST /products/{product_id}/regenerate-cover."
+            )
     if current_stage == ProductStage.COMPLIANCE.value:
         decision = (product.data or {}).get("compliance_output", {}).get("decision")
         if decision != "pass":

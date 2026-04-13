@@ -7,6 +7,11 @@ Process (do this in order):
 2) Derive `title`, `subtitle`, and `description` **directly** from those three fields so the listing stays coherent.
 3) Choose `keywords` that match real search intent for that buyer.
 
+Title hard constraint (mandatory):
+- The `title` MUST read like **WHO + WHAT + context**, usually including **" for "** plus a specific audience
+  (e.g. "AI Prompt Engineering Logbook for Developers", "Daily Execution System for Startup Founders").
+- Avoid ultra-broad titles like "The Productivity Journal" with no audience.
+
 Hard rules:
 1) Do not use trademarked, franchise, character, brand, or copyrighted universe terms.
 2) Do not make misleading or unverifiable claims (no guaranteed outcomes, no false rankings, no fake credentials).
